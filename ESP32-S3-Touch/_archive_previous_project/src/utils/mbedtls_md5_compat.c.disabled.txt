@@ -1,0 +1,2 @@
+This file has been disabled to avoid duplicate symbol errors.
+Use mbedtls_md5_compat.cpp instead.

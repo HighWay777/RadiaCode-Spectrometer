@@ -1,0 +1,622 @@
+#include "page_home.h"
+#include "ui_framework.h"
+#include "weather_icons.h"
+#include <time.h>
+#include <algorithm>
+#include <Fonts/GFXFF/FreeSans9pt7b.h>
+#include <Fonts/GFXFF/FreeSans12pt7b.h>
+#include <Fonts/GFXFF/FreeSansBold12pt7b.h>
+#include <Fonts/GFXFF/FreeSansBold18pt7b.h>
+#include <Fonts/GFXFF/FreeSansBold24pt7b.h>
+#include "../utils/time_manager.h"
+#include "../network/network_manager.h"
+
+// Small helper icons for badges (local)
+static void drawDrop(Arduino_GFX* gfx, int16_t x, int16_t y, int16_t size, uint16_t color) {
+  // simple tear drop using circle + triangle
+  int16_t r = size / 3;
+  gfx->fillCircle(x, y, r, color);
+  gfx->fillTriangle(x, y - r * 2, x - r, y, x + r, y, color);
+}
+
+static inline uint8_t expand5(uint8_t v) { return (v << 3) | (v >> 2); }
+static inline uint8_t expand6(uint8_t v) { return (v << 2) | (v >> 4); }
+static inline uint16_t rgbTo565(uint8_t r, uint8_t g, uint8_t b) {
+  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
+struct TextMetrics {
+  int16_t x1;
+  int16_t y1;
+  uint16_t w;
+  uint16_t h;
+};
+
+static TextMetrics measureText(Arduino_GFX* gfx, const GFXfont* font, const char* text) {
+  TextMetrics m{0, 0, 0, 0};
+  if (!text) return m;
+  gfx->setFont(font);
+  gfx->setTextSize(1);
+  gfx->getTextBounds(text, 0, 0, &m.x1, &m.y1, &m.w, &m.h);
+  return m;
+}
+
+static const GFXfont* selectFont(uint8_t level, bool bold = false) {
+  if (bold) {
+    if (level >= 5) return &FreeSansBold24pt7b;
+    if (level >= 4) return &FreeSansBold18pt7b;
+    return &FreeSansBold12pt7b;
+  }
+  if (level >= 4) return &FreeSans12pt7b;
+  if (level >= 2) return &FreeSans12pt7b;
+  return &FreeSans9pt7b;
+}
+
+static void drawTextTopLeft(Arduino_GFX* gfx, const GFXfont* font, uint16_t color, int16_t x, int16_t y, const char* text) {
+  TextMetrics m = measureText(gfx, font, text);
+  int16_t baseline = y - m.y1;
+  gfx->setFont(font);
+  gfx->setTextSize(1);
+  gfx->setTextColor(color);
+  gfx->setCursor(x, baseline);
+  gfx->print(text);
+}
+
+static void drawTextCentered(Arduino_GFX* gfx, const GFXfont* font, uint16_t color,
+                             int16_t areaX, int16_t areaY, int16_t areaW, int16_t areaH,
+                             const char* text) {
+  TextMetrics m = measureText(gfx, font, text);
+  int16_t x = areaX + (int16_t)((areaW - (int16_t)m.w) / 2);
+  if (x < areaX) x = areaX;
+  int16_t top = areaY + (int16_t)((areaH - (int16_t)m.h) / 2);
+  if (top < areaY) top = areaY;
+  int16_t baseline = top - m.y1;
+  gfx->setFont(font);
+  gfx->setTextSize(1);
+  gfx->setTextColor(color);
+  gfx->setCursor(x, baseline);
+  gfx->print(text);
+}
+
+static uint16_t blendColor(uint16_t a, uint16_t b, uint8_t alpha) {
+  uint8_t ar = expand5((a >> 11) & 0x1F);
+  uint8_t ag = expand6((a >> 5) & 0x3F);
+  uint8_t ab = expand5(a & 0x1F);
+  uint8_t br = expand5((b >> 11) & 0x1F);
+  uint8_t bg = expand6((b >> 5) & 0x3F);
+  uint8_t bb = expand5(b & 0x1F);
+
+  uint8_t r = (uint8_t)((ar * alpha + br * (255 - alpha)) / 255);
+  uint8_t g = (uint8_t)((ag * alpha + bg * (255 - alpha)) / 255);
+  uint8_t bl = (uint8_t)((ab * alpha + bb * (255 - alpha)) / 255);
+  return rgbTo565(r, g, bl);
+}
+
+static void drawHomeHeader(Arduino_GFX* gfx, int16_t x, int16_t y, int16_t w, int16_t h) {
+  const uint16_t base = blendColor(currentTheme->header, currentTheme->card, 96);
+  const uint16_t border = blendColor(base, currentTheme->text, 180);
+  gfx->fillRoundRect(x, y, w, h, 16, base);
+  gfx->drawRoundRect(x, y, w, h, 16, border);
+
+  drawTextTopLeft(gfx, selectFont(3, true), currentTheme->text, x + 24, y + 10, "Home");
+
+  uint16_t dotColor = blendColor(currentTheme->text, currentTheme->background, 150);
+  int16_t dotY = y + h / 2;
+  for (int i = 0; i < 6; i++) {
+    gfx->fillCircle(x + w - 18 - (i * 12), dotY, 3, dotColor);
+  }
+
+  gfx->setFont(nullptr);
+}
+
+// Global weather data instance (initialize with NaNs to avoid showing zeroes)
+static WeatherData currentWeather;
+static bool weatherInit = false;
+static void initWeatherDefaults() {
+  if (weatherInit) return;
+  currentWeather.currentTemp = 19.5; // Default indoor temp
+  currentWeather.targetTemp = 21.0;  // Default target
+  currentWeather.dayTemp = 22.0;
+  currentWeather.nightTemp = 18.0;
+  currentWeather.boostTemp = 25.0;
+  currentWeather.extTemp = 15.2;     // Default outdoor temp
+  currentWeather.windKph = 8.5;
+  currentWeather.efficiency = 85.0;
+  currentWeather.heatLossRate = 1.2;
+  currentWeather.kwhTotal = 24.567;
+  currentWeather.costTotal = 12.45;
+  currentWeather.dailyKWh = 2.394;
+  currentWeather.costToday = 1.89;
+  currentWeather.dailyCost = 1.89;
+  currentWeather.humidity = 65;
+  currentWeather.pressure = 1013;
+  currentWeather.solar = 800;
+  currentWeather.wifiRSSI = -45;
+  currentWeather.heaterOn = true;
+  currentWeather.heaterControlMode = 2; // AUTO
+  currentWeather.weatherCode = 1; // Sunny
+  currentWeather.isNightTime = false;
+  currentWeather.weatherDesc = "Clear & sunny";
+  weatherInit = true;
+}
+
+// Update only weather-related fields from external source
+void updateWeatherOnly(const WeatherData& data) {
+  initWeatherDefaults();
+  // weather fields
+  currentWeather.extTemp = data.extTemp;
+  currentWeather.humidity = data.humidity;
+  currentWeather.pressure = data.pressure;
+  currentWeather.windKph = data.windKph;
+  currentWeather.solar = data.solar;
+  currentWeather.isNightTime = data.isNightTime;
+  currentWeather.weatherCode = data.weatherCode;
+  currentWeather.weatherDesc = data.weatherDesc;
+  currentWeather.wifiRSSI = data.wifiRSSI;
+  uiRequestRedraw();
+}
+
+// Update only boiler/energy-related fields (from local API)
+void updateBoilerData(const WeatherData& data) {
+  initWeatherDefaults();
+  // temps and mode
+  currentWeather.currentTemp = data.currentTemp;
+  currentWeather.targetTemp = data.targetTemp;
+  currentWeather.dayTemp = data.dayTemp;
+  currentWeather.nightTemp = data.nightTemp;
+  currentWeather.boostTemp = data.boostTemp;
+  currentWeather.isBoostTime = data.isBoostTime;
+  currentWeather.targetSource = data.targetSource;
+  currentWeather.heaterOn = data.heaterOn;
+  currentWeather.manualOverride = data.manualOverride;
+  currentWeather.heaterControlMode = data.heaterControlMode;
+  currentWeather.aiEnabled = data.aiEnabled;
+  // energy stats
+  currentWeather.efficiency = data.efficiency;
+  currentWeather.heatLossRate = data.heatLossRate;
+  currentWeather.kwhTotal = data.kwhTotal;
+  currentWeather.costTotal = data.costTotal;
+  currentWeather.dailyKWh = data.dailyKWh;
+  currentWeather.costToday = data.costToday;
+  currentWeather.dailyCost = data.dailyCost;
+  uiRequestRedraw();
+}
+
+// Getter for weather data
+WeatherData* getCurrentWeatherData() {
+  initWeatherDefaults();
+  return &currentWeather;
+}
+
+HomeLayoutGeometry getHomeLayoutGeometry() {
+  HomeLayoutGeometry layout{};
+  layout.margin = 12;
+  layout.headerHeight = 36;
+  layout.headerY = layout.margin;
+  layout.statusHeight = 26;
+  layout.weatherHeight = 132;
+
+  if (SCREEN_HEIGHT < 240) {
+    layout.weatherHeight = SCREEN_HEIGHT / 2 - 24;
+  }
+
+  layout.weatherY = layout.headerY + layout.headerHeight + layout.margin;
+  layout.statusY = SCREEN_HEIGHT - layout.statusHeight - layout.margin;
+  layout.clockY = layout.weatherY + layout.weatherHeight + layout.margin;
+  layout.clockHeight = layout.statusY - layout.clockY - layout.margin;
+
+  const int16_t minClockHeight = 64;
+  if (layout.clockHeight < minClockHeight) {
+    int16_t deficit = minClockHeight - layout.clockHeight;
+    int16_t adjusted = layout.weatherHeight - (deficit + 8);
+    if (adjusted < 96) adjusted = 96;
+    layout.weatherHeight = adjusted;
+    layout.clockY = layout.weatherY + layout.weatherHeight + layout.margin;
+    layout.clockHeight = layout.statusY - layout.clockY - layout.margin;
+  }
+
+  if (layout.clockHeight < minClockHeight) {
+    layout.clockHeight = minClockHeight;
+    layout.clockY = layout.statusY - layout.margin - layout.clockHeight;
+    if (layout.clockY < layout.weatherY + layout.margin) {
+      layout.clockY = layout.weatherY + layout.margin;
+      layout.clockHeight = layout.statusY - layout.clockY - layout.margin;
+    }
+  }
+
+  if (layout.clockHeight > SCREEN_HEIGHT) {
+    layout.clockHeight = SCREEN_HEIGHT / 3;
+    layout.clockY = layout.statusY - layout.margin - layout.clockHeight;
+  }
+
+  return layout;
+}
+
+HomeWeatherLayout computeHomeWeatherLayout(bool showSensor) {
+  HomeLayoutGeometry layout = getHomeLayoutGeometry();
+  HomeWeatherLayout out{};
+  out.panelX = layout.margin;
+  out.panelY = layout.weatherY;
+  out.panelW = SCREEN_WIDTH - layout.margin * 2;  // 480 - 24 = 456px
+  out.panelH = layout.weatherHeight;
+
+  // Fixed layout for 480px screen to prevent overlaps
+  const int16_t padding = 20;
+  int16_t iconAreaW = 80;      // Weather icon area
+  int16_t sensorAreaW = showSensor ? 100 : 0;  // Boiler sensor area 
+  int16_t gapBetween = 15;     // Gap between sections
+  
+  // Calculate remaining space for weather text
+  int16_t usedWidth = padding * 2 + iconAreaW + gapBetween;
+  if (showSensor) usedWidth += sensorAreaW + gapBetween;
+  int16_t summaryW = out.panelW - usedWidth; // Remaining space for text
+  
+  // Ensure minimum space for text - if not enough, disable sensor
+  if (summaryW < 150 && showSensor) {
+    showSensor = false;
+    sensorAreaW = 0;
+    usedWidth = padding * 2 + iconAreaW + gapBetween;
+    summaryW = out.panelW - usedWidth;
+  }
+
+  // Layout positions
+  out.iconX = out.panelX + padding;
+  out.iconY = out.panelY + padding + 6;
+  out.iconW = iconAreaW;
+  out.iconH = out.panelH - padding * 2 - 12;
+
+  out.summaryX = out.iconX + iconAreaW + gapBetween;
+  out.summaryY = out.panelY + padding;
+  out.summaryW = summaryW;
+  out.summaryH = out.panelH - padding * 2;
+
+  out.badgesY = out.summaryY + 50; // More space for temp/description
+  out.badgeHeight = 26;
+  out.badgeGap = 8;
+  out.showSensor = showSensor;
+
+  if (showSensor) {
+    out.sensorW = sensorAreaW;
+    out.sensorH = out.panelH - padding * 2;
+    out.sensorX = out.summaryX + summaryW + gapBetween;
+    out.sensorY = out.panelY + padding;
+  } else {
+    out.sensorW = out.sensorH = 0;
+    out.sensorX = out.sensorY = 0;
+  }
+
+  return out;
+}
+
+void drawPageHome(Arduino_GFX* gfx, AppConfig* config) {
+  gfx->setTextWrap(false);
+  
+  // Clear the screen first to prevent any overlay artifacts
+  gfx->fillScreen(currentTheme->background);
+  
+  HomeLayoutGeometry layout = getHomeLayoutGeometry();
+  int16_t usableW = SCREEN_WIDTH - layout.margin * 2;
+
+  drawHomeHeader(gfx, layout.margin, layout.headerY, usableW, layout.headerHeight);
+  drawWeatherPanel(gfx, layout.margin, layout.weatherY, usableW, layout.weatherHeight);
+  drawClockPanel(gfx, layout.margin, layout.clockY, usableW, layout.clockHeight);
+  drawStatusBar(gfx, layout.margin, layout.statusY, usableW, layout.statusHeight);
+}
+
+void drawWeatherPanel(Arduino_GFX* gfx, int16_t x, int16_t y, int16_t w, int16_t h) {
+  AppConfig* config = ConfigStore::getConfig();
+  gfx->setTextWrap(false);
+
+  const int16_t radius = 18;
+  const uint16_t base = blendColor(currentTheme->card, currentTheme->background, 220);
+  const uint16_t outline = blendColor(base, currentTheme->text, 120);
+  const uint16_t chip = blendColor(currentTheme->accent, base, 180);
+
+  // Modern card with subtle shadow effect
+  gfx->fillRoundRect(x+2, y+2, w, h, radius, blendColor(currentTheme->background, 0x0000, 240)); // Shadow
+  gfx->fillRoundRect(x, y, w, h, radius, base);
+  gfx->drawRoundRect(x, y, w, h, radius, outline);
+
+  // Enhanced section label with gradient-like effect
+  gfx->setTextColor(currentTheme->text);
+  gfx->setTextSize(1);
+  gfx->fillRoundRect(x + 12, y + 8, 75, 18, 9, chip);
+  gfx->drawRoundRect(x + 12, y + 8, 75, 18, 9, blendColor(chip, currentTheme->text, 160));
+  gfx->setCursor(x + 20, y + 16);
+  gfx->print("Weather");
+
+  // PROFESSIONAL 3-COLUMN LAYOUT - Fixed widths, clear separation
+  const bool showSensor = config->showBoilerTempOnHome && !isnan(currentWeather.currentTemp);
+  const int16_t padding = 15;
+  const int16_t topOffset = 40; // Space for "Weather" label
+  
+  // Column 1: Weather Icon (LEFT)
+  const int16_t iconColW = 100;
+  const int16_t iconX = x + padding;
+  const int16_t iconY = y + topOffset;
+  const int16_t iconSize = 60;
+  
+  // Column 2: Weather Info (CENTER) 
+  const int16_t infoColX = iconX + iconColW;
+  const int16_t infoColW = showSensor ? 240 : 340;
+  const int16_t infoY = y + topOffset;
+  
+  // Column 3: Boiler Sensor (RIGHT)
+  const int16_t sensorColX = infoColX + infoColW + 10;
+  const int16_t sensorColW = 110;
+  
+  // COLUMN 1: Weather Icon
+  if (config->showWeatherIcons) {
+    if (currentWeather.weatherCode >= 0) {
+      drawWeatherIcon(gfx, iconX + iconSize/2, iconY + iconSize/2, iconSize, 
+                      currentWeather.weatherCode, currentWeather.isNightTime);
+    } else {
+      drawSun(gfx, iconX + iconSize/2, iconY + iconSize/2, iconSize, currentTheme->accent);
+    }
+  }
+
+  // COLUMN 2: Weather Information
+  char tempStr[16];
+  if (!isnan(currentWeather.extTemp)) snprintf(tempStr, sizeof(tempStr), "%.1f°C", currentWeather.extTemp);
+  else strncpy(tempStr, "--.-°C", sizeof(tempStr));
+  tempStr[sizeof(tempStr) - 1] = '\0';
+
+  // Temperature - large and prominent
+  drawTextTopLeft(gfx, selectFont(4, true), currentTheme->text, infoColX, infoY, tempStr);
+  
+  // Description - on new line, smaller
+  const char* desc = currentWeather.weatherDesc.length() ? currentWeather.weatherDesc.c_str() : "Clear";
+  drawTextTopLeft(gfx, selectFont(2, false), 
+                  blendColor(currentTheme->textSecondary, currentTheme->text, 160), 
+                  infoColX, infoY + 35, desc);
+
+  // Weather details - compact 2x2 grid layout - ALWAYS SHOW
+  int16_t detailY = infoY + 65;
+  const int16_t lineHeight = 15;
+  const int16_t col2X = infoColX + 120; // Second column position
+  int16_t row1Y = detailY;
+  int16_t row2Y = detailY + lineHeight;
+  
+  // Row 1, Column 1: Humidity (show even if 0)
+  char humStr[20];
+  int humidity = currentWeather.humidity >= 0 ? currentWeather.humidity : 65; // Default if missing
+  snprintf(humStr, sizeof(humStr), "💧 %d%%", humidity);
+  drawTextTopLeft(gfx, selectFont(1, false), currentTheme->text, infoColX, row1Y, humStr);
+  
+  // Row 1, Column 2: Pressure (show even if 0)
+  char pressStr[20];
+  int pressure = currentWeather.pressure > 0 ? currentWeather.pressure : 1013; // Default if missing
+  snprintf(pressStr, sizeof(pressStr), "🌀 %dhPa", pressure);
+  drawTextTopLeft(gfx, selectFont(1, false), currentTheme->text, col2X, row1Y, pressStr);
+
+  // Row 2, Column 1: Wind (show even if 0)
+  char windStr[20];
+  float windKph = (!isnan(currentWeather.windKph) && currentWeather.windKph > 0) ? currentWeather.windKph : 5.0f; // Default
+  snprintf(windStr, sizeof(windStr), "💨 %.0fkm/h", windKph);
+  drawTextTopLeft(gfx, selectFont(1, false), currentTheme->text, infoColX, row2Y, windStr);
+
+  // Row 2, Column 2: Energy or Solar (show something)
+  char energyStr[20];
+  if (!isnan(currentWeather.dailyKWh) && currentWeather.dailyKWh > 0) {
+    snprintf(energyStr, sizeof(energyStr), "⚡ %.1fkWh", currentWeather.dailyKWh);
+    drawTextTopLeft(gfx, selectFont(1, false), blendColor(currentTheme->accent, currentTheme->text, 180), 
+                    col2X, row2Y, energyStr);
+  } else {
+    int solar = currentWeather.solar >= 0 ? currentWeather.solar : 250; // Default solar value
+    snprintf(energyStr, sizeof(energyStr), "☀️ %dW", solar);
+    drawTextTopLeft(gfx, selectFont(1, false), blendColor(currentTheme->warm, currentTheme->text, 180), 
+                    col2X, row2Y, energyStr);
+  }
+
+  // COLUMN 3: Boiler Sensor (if enabled)
+  if (showSensor) {
+    uint16_t sensorBg = blendColor(currentTheme->warm, base, 200);
+    uint16_t sensorBorder = blendColor(sensorBg, currentTheme->text, 140);
+    
+    // FIXED positioning: use absolute screen coordinates
+    const int16_t badgeW = 70;  // Smaller width
+    const int16_t badgeH = 40;  // Smaller height
+    const int16_t badgeX = 395; // Fixed position from left edge
+    const int16_t badgeY = y + topOffset + 5;
+    
+    gfx->fillRoundRect(badgeX, badgeY, badgeW, badgeH, 6, sensorBg);
+    gfx->drawRoundRect(badgeX, badgeY, badgeW, badgeH, 6, sensorBorder);
+
+    // Temperature centered in badge
+    char boilerStr[10];
+    if (!isnan(currentWeather.currentTemp)) snprintf(boilerStr, sizeof(boilerStr), "%.1f", currentWeather.currentTemp);
+    else strncpy(boilerStr, "--.-", sizeof(boilerStr));
+    boilerStr[sizeof(boilerStr) - 1] = '\0';
+    
+    // Center text horizontally and vertically
+    TextMetrics tempMetrics = measureText(gfx, selectFont(2, true), boilerStr);
+    int16_t textX = badgeX + (badgeW - tempMetrics.w) / 2;
+    int16_t textY = badgeY + (badgeH / 2) + (tempMetrics.h / 3);
+    
+    drawTextTopLeft(gfx, selectFont(2, true), currentTheme->text, textX, textY, boilerStr);
+
+    // Small status at bottom
+    const char* heaterState = currentWeather.heaterOn ? "ON" : "OFF";
+    uint16_t statusColor = currentWeather.heaterOn ? currentTheme->warm : currentTheme->textSecondary;
+    drawTextTopLeft(gfx, selectFont(1, false), statusColor, 
+                    badgeX + 5, badgeY + badgeH - 8, heaterState);
+  }
+
+  gfx->setFont(nullptr);
+}
+
+void drawClockPanel(Arduino_GFX* gfx, int16_t x, int16_t y, int16_t w, int16_t h) {
+  AppConfig* config = ConfigStore::getConfig();
+
+  const uint16_t bg = blendColor(currentTheme->card, currentTheme->background, 220);
+  const uint16_t border = blendColor(bg, currentTheme->text, 160);
+  gfx->fillRoundRect(x, y, w, h, 24, bg);
+  gfx->drawRoundRect(x, y, w, h, 24, border);
+
+  if (!config->showClock) {
+    drawTextTopLeft(gfx, selectFont(2, false), currentTheme->textSecondary, x + 24, y + h / 2, "Clock disabled in settings");
+    gfx->setFont(nullptr);
+    return;
+  }
+
+  time_t now = time(nullptr);
+  struct tm timeinfo; memset(&timeinfo, 0, sizeof(timeinfo));
+  localtime_r(&now, &timeinfo);
+
+  char timeStr[16];
+  if (TimeManager::timeIsSet()) snprintf(timeStr, sizeof(timeStr), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+  else strncpy(timeStr, "--:--", sizeof(timeStr));
+  timeStr[sizeof(timeStr) - 1] = '\0';
+
+  const GFXfont* timeFonts[] = {
+    &FreeSansBold24pt7b,
+    &FreeSansBold18pt7b,
+    &FreeSansBold12pt7b
+  };
+  const GFXfont* timeFont = timeFonts[0];
+  TextMetrics timeMetrics = measureText(gfx, timeFont, timeStr);
+  for (size_t i = 0; i < sizeof(timeFonts)/sizeof(timeFonts[0]); ++i) {
+    timeFont = timeFonts[i];
+    timeMetrics = measureText(gfx, timeFont, timeStr);
+    if ((int16_t)timeMetrics.w <= w - 48) break;
+  }
+  
+  // Position time in upper portion of clock panel
+  int16_t timeAreaHeight = h * 3 / 5;
+  drawTextCentered(gfx, timeFont, currentTheme->text, x, y + 8, w, timeAreaHeight, timeStr);
+
+  if (config->showDate) {
+    char dateStr[32];
+    if (TimeManager::timeIsSet()) snprintf(dateStr, sizeof(dateStr), "%02d-%02d-%04d", timeinfo.tm_mday, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900);
+    else strncpy(dateStr, "--.--.----", sizeof(dateStr));
+    dateStr[sizeof(dateStr) - 1] = '\0';
+
+    // Position date in lower portion of clock panel
+    int16_t dateAreaY = y + timeAreaHeight + 8;
+    int16_t dateAreaHeight = h - timeAreaHeight - 16;
+    drawTextCentered(gfx, selectFont(2, false), blendColor(currentTheme->textSecondary, currentTheme->text, 180), x, dateAreaY, w, dateAreaHeight, dateStr);
+  }
+
+  gfx->setFont(nullptr);
+}
+
+void drawStatusBar(Arduino_GFX* gfx, int16_t x, int16_t y, int16_t w, int16_t h) {
+  const uint16_t barBg = blendColor(currentTheme->header, currentTheme->card, 120);
+  const uint16_t barBorder = blendColor(barBg, currentTheme->text, 150);
+  gfx->fillRoundRect(x, y, w, h, 12, barBg);
+  gfx->drawRoundRect(x, y, w, h, 12, barBorder);
+
+  time_t now = time(nullptr);
+  struct tm timeinfo; memset(&timeinfo, 0, sizeof(timeinfo));
+  localtime_r(&now, &timeinfo);
+
+  char timeStr[16];
+  if (TimeManager::timeIsSet()) snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+  else strncpy(timeStr, "--:--:--", sizeof(timeStr));
+  timeStr[sizeof(timeStr) - 1] = '\0';
+
+  gfx->setTextColor(currentTheme->text);
+  gfx->setTextSize(1);
+  const GFXfont* statusFont = selectFont(1, false);
+  
+  // Build the timestamp string first
+  char timeDisplayStr[32];
+  snprintf(timeDisplayStr, sizeof(timeDisplayStr), "Updated • %s", timeStr);
+  
+  // Measure the actual width of the timestamp
+  TextMetrics timeMetrics = measureText(gfx, statusFont, timeDisplayStr);
+  int16_t top = y + (int16_t)((h - (int16_t)timeMetrics.h) / 2);
+  if (top < y) top = y;
+  int16_t baseline = top - timeMetrics.y1;
+  
+  // Draw timestamp
+  gfx->setFont(statusFont);
+  gfx->setCursor(x + 18, baseline);
+  gfx->print(timeDisplayStr);
+  
+  // System status indicators - START AFTER THE TIMESTAMP with proper spacing
+  // Calculate where the timestamp ends and add gap
+  int16_t indicatorX = x + 18 + (int16_t)timeMetrics.w + 20;  // 20px gap after timestamp
+  
+  // Memory usage indicator
+  size_t freeHeap = ESP.getFreeHeap();
+  char memStr[16];
+  snprintf(memStr, sizeof(memStr), "MEM:%luk", freeHeap / 1024);
+  uint16_t memColor = (freeHeap > 100000) ? blendColor(0x07E0, currentTheme->text, 160) : 
+                     (freeHeap > 50000) ? blendColor(0xFFE0, currentTheme->text, 160) : 
+                     blendColor(0xF800, currentTheme->text, 160);
+  gfx->setTextColor(memColor);
+  gfx->setCursor(indicatorX, baseline);
+  gfx->print(memStr);
+  
+  // Measure memory text and move to next position
+  TextMetrics memMetrics = measureText(gfx, statusFont, memStr);
+  indicatorX += (int16_t)memMetrics.w + 15;  // 15px gap
+  
+  // Temperature sensor status
+  char tempStr[16];
+  snprintf(tempStr, sizeof(tempStr), "TEMP:%s", (!isnan(currentWeather.currentTemp)) ? "OK" : "ERR");
+  uint16_t tempSensorColor = (!isnan(currentWeather.currentTemp)) ? 
+    blendColor(0x07E0, currentTheme->text, 160) : blendColor(0xF800, currentTheme->text, 160);
+  gfx->setTextColor(tempSensorColor);
+  gfx->setCursor(indicatorX, baseline);
+  gfx->print(tempStr);
+
+  const char* mode = "";
+  switch (currentWeather.heaterControlMode) {
+    case 0: mode = "OFF"; break;
+    case 1: mode = "MANUAL"; break;
+    case 2: mode = "AUTO"; break;
+    case 3: mode = "AI"; break;
+  }
+
+  uint16_t chipBg = blendColor(currentTheme->accent, barBg, 180);
+  uint16_t chipBorder = blendColor(chipBg, currentTheme->text, 140);
+  int16_t chipWidth = 68;
+  int16_t chipHeight = h - 14;
+  int16_t chipX = x + w - chipWidth - 20;
+  int16_t chipY = y + (h - chipHeight) / 2;
+  gfx->fillRoundRect(chipX, chipY, chipWidth, chipHeight, 10, chipBg);
+  gfx->drawRoundRect(chipX, chipY, chipWidth, chipHeight, 10, chipBorder);
+  drawTextCentered(gfx, selectFont(2, true), currentTheme->text, chipX, chipY, chipWidth, chipHeight, mode);
+
+  int16_t wifiWidth = 32;
+  int16_t wifiX = chipX - wifiWidth - 18;
+  drawWifiIcon(wifiX, y + h - 8, h - 10, NetworkManager::getWiFiRSSI());
+  
+  // Enhanced WiFi signal indicator with color coding
+  int rssi = NetworkManager::getWiFiRSSI();
+  uint16_t signalColor = currentTheme->textSecondary;
+  if (rssi > -50) signalColor = blendColor(0x07E0, currentTheme->text, 180); // Green for excellent
+  else if (rssi > -70) signalColor = blendColor(0xFFE0, currentTheme->text, 180); // Yellow for good
+  else signalColor = blendColor(0xF800, currentTheme->text, 180); // Red for poor
+  
+  // Signal strength bars
+  for (int i = 0; i < 4; i++) {
+    int16_t barHeight = 3 + (i * 2);
+    int16_t barY = y + h - 6 - barHeight;
+    uint16_t barColor = (rssi > (-90 + i * 15)) ? signalColor : blendColor(signalColor, currentTheme->background, 100);
+    gfx->fillRect(wifiX + 5 + (i * 4), barY, 2, barHeight, barColor);
+  }
+
+  gfx->setFont(nullptr);
+}
+
+void handleHomeTouchEvents(int16_t x, int16_t y, bool pressed) {
+  // Touch event handler for the home page
+  // Return true if the event was handled
+  
+  // Check if touch is on the weather panel (for setting temperature)
+  if (y >= 34 && y < 150) {
+    // Handle weather panel touch events
+    return;
+  }
+  
+  // Check if touch is on the clock panel
+  if (y >= 160 && y < 252) {
+    // Handle clock panel touch events
+    return;
+  }
+  
+  // No events were handled
+}

@@ -1,0 +1,830 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32-S3 Controller</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Clean Web UI - Rebuilt from scratch -->
+  
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="nav-icon">🌡️</span>
+      <span class="nav-title">ESP32 Controller</span>
+    </div>
+    <div class="nav-links">
+      <a href="#dashboard" class="nav-link active">
+        <span class="link-icon">📊</span>
+        <span class="link-text">Dashboard</span>
+      </a>
+      <a href="#control" class="nav-link">
+        <span class="link-icon">🎛️</span>
+        <span class="link-text">Control</span>
+      </a>
+      <a href="#builder" class="nav-link">
+        <span class="link-icon">🎨</span>
+        <span class="link-text">Builder</span>
+      </a>
+      <a href="#settings" class="nav-link">
+        <span class="link-icon">⚙️</span>
+        <span class="link-text">Settings</span>
+      </a>
+      <a href="#ota" class="nav-link">
+        <span class="link-icon">📡</span>
+        <span class="link-text">OTA Update</span>
+      </a>
+    </div>
+    <div class="nav-status" id="connection-status">
+      <span class="status-dot"></span>
+      <span class="status-text">Connected</span>
+    </div>
+  </nav>
+
+  <div class="container">
+    <!-- Dashboard Page -->
+    <section id="dashboard" class="page active">
+      <div class="page-header">
+        <h1>Dashboard</h1>
+        <p class="subtitle">Real-time monitoring and system status</p>
+      </div>
+      <div class="grid-row">
+        <div class="stat-card primary">
+          <div class="stat-icon">🌡️</div>
+          <div class="stat-content">
+            <div class="stat-label">Current Temperature</div>
+            <div class="stat-value" id="current-temp">--°C</div>
+            <div class="stat-sub" id="temp-status">Waiting...</div>
+          </div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-icon">🎯</div>
+          <div class="stat-content">
+            <div class="stat-label">Target Temperature</div>
+            <div class="stat-value" id="target-temp">--°C</div>
+            <div class="stat-sub" id="temp-diff">--</div>
+          </div>
+        </div>
+        <div class="stat-card info">
+          <div class="stat-icon">⚡</div>
+          <div class="stat-content">
+            <div class="stat-label">Heater Status</div>
+            <div class="stat-value" id="heater-status">--</div>
+            <div class="stat-sub" id="heater-mode">--</div>
+          </div>
+        </div>
+        <div class="stat-card warning">
+          <div class="stat-icon">⚙️</div>
+          <div class="stat-content">
+            <div class="stat-label">Control Mode</div>
+            <div class="stat-value" id="control-mode">--</div>
+            <div class="stat-sub">Current operation</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-row two-cols">
+        <div class="card">
+          <div class="card-header">
+            <h2>Weather</h2>
+            <span class="card-badge" id="weather-updated">--</span>
+          </div>
+          <div class="card-body">
+            <div class="weather-display">
+              <div class="weather-icon" id="weather-icon-display">
+                <span class="big-icon">☁️</span>
+              </div>
+              <div class="weather-info">
+                <div class="weather-temp" id="weather-temp">--°C</div>
+                <div class="weather-desc" id="weather-desc">Loading...</div>
+              </div>
+            </div>
+            <div class="weather-details">
+              <div class="detail-item">
+                <span class="detail-icon">💧</span>
+                <span class="detail-label">Humidity</span>
+                <span class="detail-value" id="weather-humidity">--%</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-icon">💨</span>
+                <span class="detail-label">Wind</span>
+                <span class="detail-value" id="weather-wind">-- km/h</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-icon">📊</span>
+                <span class="detail-label">Pressure</span>
+                <span class="detail-value" id="weather-pressure">-- hPa</span>
+              </div>
+            </div>
+            <div class="weather-times">
+              <div class="detail-item">
+                <span class="detail-icon">🌅</span>
+                <span class="detail-label">Sunrise</span>
+                <span class="detail-value" id="weather-sunrise">--:--</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-icon">🌇</span>
+                <span class="detail-label">Sunset</span>
+                <span class="detail-value" id="weather-sunset">--:--</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-icon">🔄</span>
+                <span class="detail-label">Next Update</span>
+                <span class="detail-value" id="weather-next-update">--:--</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Network</h2>
+            <span class="card-badge badge-online" id="wifi-badge">Online</span>
+          </div>
+          <div class="card-body">
+            <div class="network-info">
+              <div class="network-item">
+                <span class="network-label">SSID</span>
+                <span class="network-value" id="wifi-ssid">--</span>
+              </div>
+              <div class="network-item">
+                <span class="network-label">Signal</span>
+                <span class="network-value" id="wifi-signal">-- dBm</span>
+              </div>
+              <div class="network-item">
+                <span class="network-label">IP Address</span>
+                <span class="network-value" id="device-ip">--</span>
+              </div>
+              <div class="network-item">
+                <span class="network-label">Uptime</span>
+                <span class="network-value" id="device-uptime">--</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-row two-cols">
+        <div class="card">
+          <div class="card-header">
+            <h2>⚡ Energy Statistics</h2>
+          </div>
+          <div class="card-body">
+            <div class="stat-row">
+              <span class="stat-row-label">Today:</span>
+              <span class="stat-row-value" id="energy-today">0.00 kWh</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">Total:</span>
+              <span class="stat-row-value" id="energy-total">0.0 kWh</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">Efficiency:</span>
+              <span class="stat-row-value" id="energy-efficiency">0.0%</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">Heat Loss:</span>
+              <span class="stat-row-value" id="energy-heat-loss">0.0%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>🏥 Device Health</h2>
+          </div>
+          <div class="card-body">
+            <div class="health-item">
+              <div class="health-label">Memory:</div>
+              <div class="health-bar">
+                <div class="health-bar-fill" id="memory-bar" style="width: 0%"></div>
+              </div>
+              <div class="health-value" id="memory-value">0%</div>
+            </div>
+            <div class="health-item">
+              <div class="health-label">CPU Temp:</div>
+              <div class="health-bar">
+                <div class="health-bar-fill" id="cpu-temp-bar" style="width: 0%"></div>
+              </div>
+              <div class="health-value" id="cpu-temp-value">-- °C</div>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">Sensor Status:</span>
+              <span class="stat-row-value" id="sensor-status">N/A</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>LCD Preview</h2>
+          <button class="btn-ghost btn-sm" id="refresh-preview">Refresh</button>
+        </div>
+        <div class="card-body center">
+          <canvas id="lcd-preview" width="480" height="272"></canvas>
+          <div class="preview-status" id="preview-status">Initializing...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Control Page - Compact Card-Based Design -->
+    <section id="control" class="page">
+      <div class="page-header">
+        <h1>🔥 Heater Control</h1>
+        <p class="subtitle">Temperature and mode settings</p>
+      </div>
+      
+      <!-- Single Compact Control Card -->
+      <div class="control-card">
+        <!-- Current Status Row -->
+        <div class="control-status">
+          <div class="status-item">
+            <span class="status-label">Current</span>
+            <span class="status-value temp-current" id="ctrl-current-temp">--°C</span>
+          </div>
+          <div class="status-item heater-indicator" id="ctrl-heater-status">
+            <span class="flame-icon">🔥</span>
+            <span class="heater-text">OFF</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Target</span>
+            <span class="status-value temp-target" id="ctrl-target-temp">--°C</span>
+          </div>
+        </div>
+        
+        <!-- Mode Selection Row (3 modes: Off, Auto, AI) -->
+        <div class="control-modes three-modes">
+          <button class="ctrl-mode-btn" data-mode="0" title="Turn heater off">
+            <span class="icon">⏻</span>
+            <span class="label">Off</span>
+          </button>
+          <button class="ctrl-mode-btn" data-mode="2" title="Thermostat mode">
+            <span class="icon">🌡️</span>
+            <span class="label">Thermo</span>
+          </button>
+          <button class="ctrl-mode-btn" data-mode="3" title="AI-powered control">
+            <span class="icon">🤖</span>
+            <span class="label">AI</span>
+          </button>
+        </div>
+        
+        <!-- Temperature Control Row -->
+        <div class="control-temp">
+          <button class="temp-adj-btn" id="ctrl-temp-down">−</button>
+          <div class="temp-display-box">
+            <span class="temp-value" id="ctrl-temp-value">22</span>
+            <span class="temp-unit">°C</span>
+          </div>
+          <button class="temp-adj-btn" id="ctrl-temp-up">+</button>
+        </div>
+        
+        <!-- Quick Presets Row -->
+        <div class="control-presets">
+          <button class="preset-chip" data-temp="18">18°</button>
+          <button class="preset-chip" data-temp="20">20°</button>
+          <button class="preset-chip" data-temp="22">22°</button>
+          <button class="preset-chip" data-temp="24">24°</button>
+          <button class="preset-chip" data-temp="26">26°</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Builder Page -->
+    <section id="builder" class="page">
+      <div class="builder-container">
+        <!-- Left Sidebar: Page Manager -->
+        <aside class="builder-sidebar builder-pages">
+          <div class="sidebar-header">
+            <h3>Pages</h3>
+            <button class="btn-icon-small" id="page-add" title="New Page">➕</button>
+            <button class="btn-icon-small" id="page-import" title="Import from File">📥</button>
+          </div>
+          <div class="page-list" id="page-list">
+            <div class="page-list-loading">Loading pages...</div>
+          </div>
+        </aside>
+
+        <!-- Main Canvas Area -->
+        <div class="builder-main">
+          <!-- Top Toolbar -->
+          <div class="builder-toolbar">
+            <div class="toolbar-section">
+              <div class="page-selector">
+                <label>Editing:</label>
+                <select id="current-page-selector">
+                  <option value="">Select page...</option>
+                </select>
+              </div>
+              <div class="page-mode">
+                <label>
+                  <input type="radio" name="edit-mode" value="custom" checked>
+                  <span>Custom</span>
+                </label>
+                <label>
+                  <input type="radio" name="edit-mode" value="overlay">
+                  <span>Overlay</span>
+                </label>
+              </div>
+            </div>
+            <div class="toolbar-section">
+              <button class="btn-icon" id="builder-undo" title="Undo (Ctrl+Z)">↶</button>
+              <button class="btn-icon" id="builder-redo" title="Redo (Ctrl+Y)">↷</button>
+              <span class="toolbar-divider"></span>
+              <button class="btn-icon" id="builder-copy" title="Copy (Ctrl+C)">📋</button>
+              <button class="btn-icon" id="builder-paste" title="Paste (Ctrl+V)">📥</button>
+              <button class="btn-icon" id="builder-delete" title="Delete">🗑️</button>
+              <span class="toolbar-divider"></span>
+              <button class="btn-icon" id="align-left" title="Align Left">⬅️</button>
+              <button class="btn-icon" id="align-center" title="Align Center">↔️</button>
+              <button class="btn-icon" id="align-right" title="Align Right">➡️</button>
+              <button class="btn-icon" id="align-top" title="Align Top">⬆️</button>
+              <button class="btn-icon" id="align-middle" title="Align Middle">↕️</button>
+              <button class="btn-icon" id="align-bottom" title="Align Bottom">⬇️</button>
+            </div>
+            <div class="toolbar-section">
+              <label class="toolbar-checkbox">
+                <input type="checkbox" id="show-base" checked>
+                <span>Show Base</span>
+              </label>
+              <label class="toolbar-checkbox">
+                <input type="checkbox" id="show-grid" checked>
+                <span>Grid</span>
+              </label>
+              <label class="toolbar-checkbox">
+                <input type="checkbox" id="snap-to-grid" checked>
+                <span>Snap</span>
+              </label>
+              <label class="toolbar-checkbox">
+                <input type="checkbox" id="live-preview">
+                <span>Live</span>
+              </label>
+            </div>
+            <div class="toolbar-section toolbar-actions">
+              <button class="btn" id="builder-save">💾 Save</button>
+              <button class="btn btn-primary" id="builder-deploy">🚀 Deploy</button>
+              <span class="toolbar-divider"></span>
+              <button class="btn btn-ghost" id="builder-presets" title="Layout Presets">📑</button>
+              <button class="btn btn-ghost" id="builder-reset" title="Reset to Default">🔄</button>
+            </div>
+          </div>
+
+          <!-- Canvas Area -->
+          <div class="builder-canvas-area">
+            <div class="canvas-wrapper">
+              <canvas id="builder-canvas" width="480" height="272"></canvas>
+              <div class="canvas-overlay" id="selection-box"></div>
+            </div>
+            <div class="canvas-controls">
+              <div class="zoom-controls">
+                <button class="btn-icon-small" id="zoom-out">−</button>
+                <span id="zoom-level">100%</span>
+                <button class="btn-icon-small" id="zoom-in">+</button>
+                <button class="btn-icon-small" id="zoom-fit" title="Fit to screen">⊡</button>
+              </div>
+              <div class="canvas-info">
+                <span id="canvas-status">480 × 272</span>
+                <span id="save-status">Unsaved</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Sidebar: Widgets & Properties -->
+        <aside class="builder-sidebar builder-widgets">
+          <div class="sidebar-tabs">
+            <button class="tab-btn active" data-tab="widgets">Widgets</button>
+            <button class="tab-btn" data-tab="properties">Properties</button>
+            <button class="tab-btn" data-tab="bindings">Bindings</button>
+          </div>
+
+          <!-- Widgets Tab -->
+          <div class="tab-content active" id="tab-widgets">
+            <div class="widget-palette">
+              <div class="widget-category">
+                <h4>Text</h4>
+                <div class="widget-items">
+                  <div class="widget-item" data-widget="label" draggable="true">
+                    <span class="widget-icon">📝</span>
+                    <span class="widget-name">Label</span>
+                  </div>
+                  <div class="widget-item" data-widget="value" draggable="true">
+                    <span class="widget-icon">🔢</span>
+                    <span class="widget-name">Value</span>
+                  </div>
+                  <div class="widget-item" data-widget="badge" draggable="true">
+                    <span class="widget-icon">🏷️</span>
+                    <span class="widget-name">Badge</span>
+                  </div>
+                </div>
+              </div>
+              <div class="widget-category">
+                <h4>Visual</h4>
+                <div class="widget-items">
+                  <div class="widget-item" data-widget="icon" draggable="true">
+                    <span class="widget-icon">🎯</span>
+                    <span class="widget-name">Icon</span>
+                  </div>
+                  <div class="widget-item" data-widget="shape" draggable="true">
+                    <span class="widget-icon">⬜</span>
+                    <span class="widget-name">Shape</span>
+                  </div>
+                  <div class="widget-item" data-widget="panel" draggable="true">
+                    <span class="widget-icon">📦</span>
+                    <span class="widget-name">Panel</span>
+                  </div>
+                  <div class="widget-item" data-widget="mask" draggable="true">
+                    <span class="widget-icon">🖤</span>
+                    <span class="widget-name">Mask</span>
+                  </div>
+                  <div class="widget-item" data-widget="weatherIcon" draggable="true">
+                    <span class="widget-icon">🌤️</span>
+                    <span class="widget-name">Weather</span>
+                  </div>
+                </div>
+              </div>
+              <div class="widget-category">
+                <h4>Interactive</h4>
+                <div class="widget-items">
+                  <div class="widget-item" data-widget="button" draggable="true">
+                    <span class="widget-icon">🔘</span>
+                    <span class="widget-name">Button</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Properties Tab -->
+          <div class="tab-content" id="tab-properties">
+            <div id="properties-content">
+              <p class="no-selection">Select a widget to edit properties</p>
+            </div>
+          </div>
+
+          <!-- Bindings Tab -->
+          <div class="tab-content" id="tab-bindings">
+            <div class="bindings-search">
+              <input type="text" id="bindings-search" placeholder="Search bindings...">
+            </div>
+            <div id="bindings-list">
+              <div class="bindings-loading">Loading bindings...</div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Settings Page -->
+    <section id="settings" class="page">
+      <div class="page-header">
+        <h1>Settings</h1>
+        <p class="subtitle">Configure display and system</p>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <h2>Display & Theme</h2>
+        </div>
+        <div class="card-body">
+          <form id="display-form">
+            <div class="form-row">
+              <label for="brightness">Brightness</label>
+              <input type="range" id="brightness" min="10" max="255" value="200">
+              <span id="brightness-value">200</span>
+            </div>
+            <div class="form-row">
+              <label for="theme">Theme</label>
+              <select id="theme">
+                <option value="0">Light</option>
+                <option value="1">Dark</option>
+                <option value="2">Blue</option>
+              </select>
+            </div>
+            <div class="form-row checkbox">
+              <label><input type="checkbox" id="auto-rotate"> Auto-rotate pages</label>
+            </div>
+            <button type="submit" class="btn-primary">Save</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Weather & Time</h2>
+        </div>
+        <div class="card-body">
+          <form id="weather-form">
+            <div class="form-row">
+              <label for="timezone">Time Zone</label>
+              <select id="timezone">
+                <option value="UTC">UTC (Coordinated Universal Time)</option>
+                <option value="Europe/London">Europe/London (GMT/BST)</option>
+                <option value="Europe/Paris">Europe/Paris (CET/CEST)</option>
+                <option value="Europe/Berlin">Europe/Berlin (CET/CEST)</option>
+                <option value="Europe/Sofia">Europe/Sofia (EET/EEST)</option>
+                <option value="Europe/Athens">Europe/Athens (EET/EEST)</option>
+                <option value="Europe/Helsinki">Europe/Helsinki (EET/EEST)</option>
+                <option value="Europe/Moscow">Europe/Moscow (MSK)</option>
+                <option value="Asia/Dubai">Asia/Dubai (GST)</option>
+                <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
+                <option value="Asia/Shanghai">Asia/Shanghai (CST)</option>
+                <option value="Asia/Bangkok">Asia/Bangkok (ICT)</option>
+                <option value="Asia/Hong_Kong">Asia/Hong_Kong (HKT)</option>
+                <option value="Australia/Sydney">Australia/Sydney (AEDT/AEST)</option>
+                <option value="America/New_York">America/New_York (EST/EDT)</option>
+                <option value="America/Chicago">America/Chicago (CST/CDT)</option>
+                <option value="America/Denver">America/Denver (MST/MDT)</option>
+                <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
+              </select>
+            </div>
+            
+            <div class="form-row">
+              <label for="weather-provider">Weather Provider</label>
+              <select id="weather-provider">
+                <option value="1">Open-Meteo (Free, No API Key)</option>
+                <option value="0">OpenWeather (Requires API Key)</option>
+              </select>
+            </div>
+            
+            <div class="form-row">
+              <label for="weather-location">Location (City or Latitude,Longitude)</label>
+              <input type="text" id="weather-location" placeholder="e.g., Sofia or 42.6977,23.3219">
+            </div>
+            
+            <div class="form-row" id="api-key-row" style="display: none;">
+              <label for="weather-api-key">API Key (OpenWeather only)</label>
+              <input type="password" id="weather-api-key" placeholder="Your OpenWeather API key">
+            </div>
+            
+            <div class="form-row">
+              <label for="weather-update-interval">Update Interval (minutes)</label>
+              <input type="number" id="weather-update-interval" min="5" max="60" value="5">
+            </div>
+            
+            <button type="submit" class="btn-primary">Save</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Network</h2>
+        </div>
+        <div class="card-body">
+          <form id="network-form">
+            <div class="form-row">
+              <label for="wifi-ssid">WiFi SSID</label>
+              <input type="text" id="wifi-ssid" placeholder="Network name">
+            </div>
+            <div class="form-row">
+              <label for="wifi-password">Password</label>
+              <input type="password" id="wifi-password" placeholder="Leave empty to keep current">
+            </div>
+            <button type="submit" class="btn-primary">Save WiFi</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Data API</h2>
+        </div>
+        <div class="card-body">
+          <form id="data-api-form">
+            <div class="form-row">
+              <label for="data-api-url">Status API URL</label>
+              <input type="url" id="data-api-url" placeholder="http://device-ip:port/api/status" style="width: 100%;">
+            </div>
+            <p style="font-size: 0.85em; color: #666; margin: 8px 0;">
+              URL to fetch boiler/sensor data from external device. Example: http://192.168.1.100:7000/api/status
+            </p>
+            <button type="submit" class="btn-primary">Save API URL</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>System</h2>
+        </div>
+        <div class="card-body">
+          <div class="system-actions">
+            <button class="btn-secondary" id="restart-device">🔄 Restart</button>
+            <button class="btn-secondary" id="reset-settings">⚠️ Reset</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- OTA Update Page -->
+    <section id="ota" class="page">
+      <div class="page-header">
+        <h1>OTA Update</h1>
+        <p class="subtitle">Over-the-Air firmware and filesystem updates</p>
+      </div>
+
+      <div class="grid-row two-cols">
+        <div class="card">
+          <div class="card-header">
+            <h2>📱 System Information</h2>
+            <button class="btn-ghost btn-sm" id="refresh-sysinfo">🔄 Refresh</button>
+          </div>
+          <div class="card-body">
+            <div class="stat-row">
+              <span class="stat-row-label">Chip Model:</span>
+              <span class="stat-row-value" id="sys-chip-model">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">CPU Frequency:</span>
+              <span class="stat-row-value" id="sys-cpu-freq">-- MHz</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">SDK Version:</span>
+              <span class="stat-row-value" id="sys-sdk-version">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">Free Heap:</span>
+              <span class="stat-row-value" id="sys-free-heap">-- KB</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">Sketch Size:</span>
+              <span class="stat-row-value" id="sys-sketch-size">-- KB</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">Sketch MD5:</span>
+              <span class="stat-row-value" id="sys-sketch-md5" style="font-size: 0.8em; word-break: break-all;">--</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">Free Sketch Space:</span>
+              <span class="stat-row-value" id="sys-free-sketch">-- KB</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">Flash Size:</span>
+              <span class="stat-row-value" id="sys-flash-size">-- MB</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">Uptime:</span>
+              <span class="stat-row-value" id="sys-uptime">--</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>💾 SPIFFS Storage</h2>
+          </div>
+          <div class="card-body">
+            <div class="stat-row">
+              <span class="stat-row-label">Total:</span>
+              <span class="stat-row-value" id="spiffs-total">-- KB</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">Used:</span>
+              <span class="stat-row-value" id="spiffs-used">-- KB</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label">Free:</span>
+              <span class="stat-row-value" id="spiffs-free">-- KB</span>
+            </div>
+            <div class="health-item" style="margin-top: 15px;">
+              <div class="health-label">Usage:</div>
+              <div class="health-bar">
+                <div class="health-bar-fill" id="spiffs-usage-bar" style="width: 0%"></div>
+              </div>
+              <div class="health-value" id="spiffs-usage-percent">0%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>🔧 Firmware Update</h2>
+        </div>
+        <div class="card-body">
+          <p style="margin-bottom: 15px; color: #666;">
+            Upload a compiled firmware binary (.bin) to update the device. The device will restart automatically after a successful update.
+          </p>
+          <div class="form-row">
+            <label for="firmware-file">Select Firmware File (.bin)</label>
+            <input type="file" id="firmware-file" accept=".bin" style="padding: 10px; border: 2px dashed #ccc; border-radius: 8px; width: 100%; cursor: pointer;">
+          </div>
+          <div id="firmware-file-info" style="margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 6px; display: none;">
+            <span id="firmware-file-name">No file selected</span>
+            <span id="firmware-file-size" style="float: right; color: #666;">0 KB</span>
+          </div>
+          <div class="progress-container" id="firmware-progress-container" style="display: none; margin: 15px 0;">
+            <div class="progress-bar">
+              <div class="progress-fill" id="firmware-progress" style="width: 0%"></div>
+            </div>
+            <div class="progress-text" id="firmware-progress-text">0%</div>
+          </div>
+          <button class="btn-primary" id="upload-firmware" disabled style="width: 100%; padding: 12px;">
+            📤 Upload Firmware
+          </button>
+          <div id="firmware-status" style="margin-top: 10px; padding: 10px; border-radius: 6px; display: none;"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>📁 SPIFFS Filesystem Update</h2>
+        </div>
+        <div class="card-body">
+          <p style="margin-bottom: 15px; color: #666;">
+            Upload a SPIFFS filesystem image (.bin) to update the web UI and data files. The device will restart automatically after a successful update.
+          </p>
+          <div class="form-row">
+            <label for="spiffs-file">Select SPIFFS Image File (.bin)</label>
+            <input type="file" id="spiffs-file" accept=".bin" style="padding: 10px; border: 2px dashed #ccc; border-radius: 8px; width: 100%; cursor: pointer;">
+          </div>
+          <div id="spiffs-file-info" style="margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 6px; display: none;">
+            <span id="spiffs-file-name">No file selected</span>
+            <span id="spiffs-file-size" style="float: right; color: #666;">0 KB</span>
+          </div>
+          <div class="progress-container" id="spiffs-progress-container" style="display: none; margin: 15px 0;">
+            <div class="progress-bar">
+              <div class="progress-fill" id="spiffs-progress" style="width: 0%"></div>
+            </div>
+            <div class="progress-text" id="spiffs-progress-text">0%</div>
+          </div>
+          <button class="btn-primary" id="upload-spiffs" disabled style="width: 100%; padding: 12px;">
+            📤 Upload SPIFFS Image
+          </button>
+          <div id="spiffs-status" style="margin-top: 10px; padding: 10px; border-radius: 6px; display: none;"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>⚠️ Important Notes</h2>
+        </div>
+        <div class="card-body">
+          <ul style="margin: 0; padding-left: 20px; color: #666;">
+            <li style="margin-bottom: 8px;">Make sure your device is connected to a stable power source during updates</li>
+            <li style="margin-bottom: 8px;">Do not interrupt the upload process or disconnect the device</li>
+            <li style="margin-bottom: 8px;">The device will automatically restart after a successful update</li>
+            <li style="margin-bottom: 8px;">If something goes wrong, you can always upload firmware via USB</li>
+            <li style="margin-bottom: 8px;">SPIFFS update will replace all web UI files - custom pages will be lost unless backed up</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="binding-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Select Binding</h3>
+        <button class="btn-icon-small" id="binding-modal-close">✖</button>
+      </div>
+      <div class="modal-body" id="binding-modal-list"></div>
+    </div>
+  </div>
+
+  <!-- Presets Modal -->
+  <div id="presets-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Layout Presets</h3>
+        <button class="btn-icon-small" id="presets-modal-close">✖</button>
+      </div>
+      <div class="modal-body">
+        <div id="presets-list" style="margin-bottom: 15px;"></div>
+        <div style="border-top: 1px solid #ccc; padding-top: 15px;">
+          <label style="display: block; margin-bottom: 10px;">
+            Save current layout as preset:
+            <input type="text" id="preset-name" placeholder="Enter preset name..." style="width: 100%; padding: 5px; margin-top: 5px;">
+          </label>
+          <button class="btn btn-primary" id="save-preset-btn" style="width: 100%;">💾 Save Preset</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset Modal -->
+  <div id="reset-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3>⚠️ Reset to Default?</h3>
+        <button class="btn-icon-small" id="reset-modal-close">✖</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 15px;">This will restore all LCD pages to their default state and clear all custom pages. This action cannot be undone.</p>
+        <p style="font-weight: bold; color: #dc2626;">Are you sure?</p>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+          <button class="btn" id="reset-cancel" style="flex: 1;">Cancel</button>
+          <button class="btn btn-primary" id="reset-confirm" style="flex: 1; background: #dc2626;">Reset</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

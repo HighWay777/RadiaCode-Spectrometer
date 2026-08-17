@@ -1,0 +1,521 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build ESP32-S3 project",
+			"type": "shell",
+			"command": "pio run -e esp32-s3-devkitc-1",
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload ESP32-S3 project",
+			"type": "shell",
+			"command": "pio run -e esp32-s3-devkitc-1 -t upload",
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build ESP32-S3 project",
+			"type": "shell",
+			"command": "pio run",
+			"args": [
+				"-e",
+				"esp32-s3-devkitc-1"
+			],
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload ESP32-S3 project",
+			"type": "shell",
+			"command": "pio run",
+			"args": [
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload"
+			],
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build ESP32-S3 project",
+			"type": "shell",
+			"command": "pio run",
+			"args": [
+				"-e",
+				"esp32-s3-devkitc-1"
+			],
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload ESP32-S3 project",
+			"type": "shell",
+			"command": "pio run",
+			"args": [
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload"
+			],
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build ESP32-S3 project",
+			"type": "shell",
+			"command": "pio run",
+			"args": [
+				"-e",
+				"esp32-s3-devkitc-1"
+			],
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build and Upload ESP32-S3 project",
+			"type": "shell",
+			"command": "pio run",
+			"args": [
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload"
+			],
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build and Upload ESP32-S3 project",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build and Upload ESP32-S3 project (absolute)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build and Upload with WiFi/Touch/UI",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build and Upload ESP32-S3 UI",
+			"type": "shell",
+			"command": "pio run -v -t upload",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build and Upload ESP32-S3 UI",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe run -e esp32-s3-devkitc-1 -t upload --upload-port COM24",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build and Upload with WiFi creds",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe run -e esp32-s3-devkitc-1 -t upload --upload-port COM24",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build and Upload after moving WiFi creds",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe run -e esp32-s3-devkitc-1 -t upload --upload-port COM24",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload Filesystem Image (esp32-s3-devkitc-1)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--target",
+				"uploadfs",
+				"--environment",
+				"esp32-s3-devkitc-1"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build+Upload FW",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload SPIFFS",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"uploadfs",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build+Upload FW",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build+Upload FW",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build+Upload FW+FS",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload FS only",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"uploadfs",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build+Upload firmware",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload FS (app.js only)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"uploadfs",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload SPIFFS (builder preview fix)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"uploadfs",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build + Upload firmware (add /api/pages/base)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Rebuild firmware + SPIFFS (builder full features)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build + Upload after overlay fixes",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload SPIFFS after builder UI changes",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"uploadfs",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload SPIFFS (fix duplicate builder fields)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"uploadfs",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload SPIFFS (remove login modal)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"uploadfs",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload SPIFFS (dedupe builder UI)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"uploadfs",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload SPIFFS (builder await + password text)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"uploadfs",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build+Upload firmware (ensure pages/all builtins)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build+Upload firmware (no-store headers)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build+Upload (overlay delete + UI)",
+			"type": "shell",
+			"command": "C:\\Users\\Bubi\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"esp32-s3-devkitc-1",
+				"-t",
+				"upload",
+				"--upload-port",
+				"COM24"
+			],
+			"group": "build"
+		}
+	]
+}

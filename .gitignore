@@ -1,0 +1,33 @@
+# build output and caches - rebuildable, and permanent once committed
+.pio/
+.pioenvs/
+.piolibdeps/
+build/
+dist/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+node_modules/
+
+# local editor state
+.vscode/.browse*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch/
+*.code-workspace
+
+# large/derived artefacts
+*.sqlite3
+*.db-journal
+*.o
+*.elf
+*.map
+
+# secrets must never enter history - use environment variables
+.env
+*.pem
+*.key
+credentials.json

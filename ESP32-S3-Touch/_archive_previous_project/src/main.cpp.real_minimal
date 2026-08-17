@@ -1,0 +1,91 @@
+#include <Arduino.h>
+#include <Arduino_GFX_Library.h>
+
+// Display configuration
+// QSPI pin mapping for display
+#define PIN_CS  45 // CS
+#define PIN_SCK 47 // SCK
+#define PIN_D0  21 // IO0 (MOSI)
+#define PIN_D1  48 // IO1 (MISO)
+#define PIN_D2  40 // IO2 (WP)
+#define PIN_D3  39 // IO3 (HOLD)
+#define PIN_RST 17 // Reset pin
+
+// Display resolution
+#define SCREEN_WIDTH 480
+#define SCREEN_HEIGHT 272
+
+// Backlight configuration
+#define LCD_BL 1
+#define LEDC_CHANNEL_0     0
+#define LEDC_TIMER_12_BIT  12
+#define LEDC_BASE_FREQ     5000
+
+// Global variables
+Arduino_DataBus *bus = new Arduino_ESP32QSPI(
+  PIN_CS, 
+  PIN_SCK, 
+  PIN_D0, 
+  PIN_D1, 
+  PIN_D2, 
+  PIN_D3);
+Arduino_GFX *gfx = new Arduino_NV3041A(bus, PIN_RST, 0 /* rotation */, true /* IPS */);
+
+void setBrightness(uint8_t value) {
+  uint32_t duty = (1 << LEDC_TIMER_12_BIT) - 1; // 4095
+  duty = duty * value / 255;
+  ledcWrite(LEDC_CHANNEL_0, duty);
+}
+
+void drawHelloWorld() {
+  gfx->fillScreen(BLACK);
+  gfx->setTextColor(WHITE);
+  gfx->setTextSize(3);
+  gfx->setCursor(40, 100);
+  gfx->println("Hello ESP32-S3 Touch!");
+  gfx->setTextSize(2);
+  gfx->setCursor(80, 150);
+  gfx->println("Project successfully rebuilt");
+}
+
+void setup() {
+  // Initialize serial for debugging
+  Serial.begin(115200);
+  delay(500); // Give serial monitor time to start
+  Serial.println("\n\nESP32-S3 Touch UI Starting...");
+  
+  // Configure LED PWM for backlight control
+  ledcSetup(LEDC_CHANNEL_0, LEDC_BASE_FREQ, LEDC_TIMER_12_BIT);
+  ledcAttachPin(LCD_BL, LEDC_CHANNEL_0);
+  setBrightness(200);
+  
+  // Initialize the display
+  if (!gfx->begin()) {
+    Serial.println("Display initialization failed!");
+    while (1) delay(1000);
+  }
+  
+  // Draw hello world screen
+  drawHelloWorld();
+  
+  Serial.println("Initialization complete");
+}
+
+void loop() {
+  // Heartbeat
+  static unsigned long lastBlink = 0;
+  if (millis() - lastBlink > 1000) {
+    lastBlink = millis();
+    static bool ledOn = false;
+    ledOn = !ledOn;
+    
+    // Update heartbeat indicator on screen
+    gfx->fillRect(10, 10, 20, 20, ledOn ? GREEN : BLACK);
+    
+    // Log to serial
+    Serial.println("Heartbeat");
+  }
+  
+  // Small delay to prevent WDT reset
+  delay(5);
+}

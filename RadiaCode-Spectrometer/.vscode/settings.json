@@ -1,0 +1,6 @@
+{
+    "clangd.arguments": [
+        "--compile-commands-dir=c:/Users/Bubi/Documents/PlatformIO/Projects/ESP32-S3-Touch/.cache/clangd",
+        "--query-driver=C:/Users/Bubi/.platformio/packages/toolchain-*/bin/*,C:/Users/Bubi/.platformio/packages/tool-*/bin/*"
+    ]
+}
