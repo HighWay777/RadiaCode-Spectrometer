@@ -6,7 +6,7 @@
 // are fetched anonymously over HTTPS and no token has to live on the device.
 #define UPDATE_HOST      "git.vhelectronics.com"
 #define UPDATE_REPO_PATH "/highway/Radiacode110"
-#define FIRMWARE_VERSION "1.0.0"
+#define FIRMWARE_VERSION "1.0.1"
 
 // Small persisted preferences, kept in NVS next to the background reference.
 //
