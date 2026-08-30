@@ -1,0 +1,30 @@
+# PlatformIO build output and caches — regenerable
+.pio/
+.pioenvs/
+.piolibdeps/
+.cache/
+compile_commands.json
+build_output.txt
+
+# Editor / IDE state
+.vscode/.browse*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch/
+.clangd
+*.code-workspace
+
+# Build artefacts
+*.o
+*.elf
+*.map
+*.bin
+
+# Nothing secret belongs in this repository. WiFi credentials are entered on
+# the device and stored in its NVS flash, never compiled in — but keep these
+# patterns as a guard against a stray local file being committed.
+*credentials*.h
+*secret*
+.env
+*.pem
+*.key

@@ -1,0 +1,8 @@
+# Firmware update manifest for the RadiaCode Spectrometer Display.
+#
+# Fetched over a plain raw-file URL rather than the Gitea API, because API
+# paths are commonly blocked by proxies while ordinary repo paths pass.
+# Update both lines when publishing a release.
+
+version=1.0.0
+url=https://git.vhelectronics.com/highway/Radiacode110/releases/download/v1.0.0/firmware.bin
