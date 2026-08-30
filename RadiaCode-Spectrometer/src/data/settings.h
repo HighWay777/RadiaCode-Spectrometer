@@ -9,7 +9,7 @@
 // Overridable from platformio.ini / build flags so a bench build can pretend
 // to be older and exercise the update path.
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "1.0.3"
+#define FIRMWARE_VERSION "1.0.4"
 #endif
 
 // Small persisted preferences, kept in NVS next to the background reference.

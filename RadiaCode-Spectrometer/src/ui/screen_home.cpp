@@ -70,6 +70,13 @@ static uint16_t doseColor(float uSvH) {
 // A thin gradient strip with a marker showing where the current reading sits.
 // The number alone does not tell a newcomer whether 0.3 uSv/h is fine.
 static void drawDoseScale(int16_t x, int16_t y, int16_t w, int16_t h, float uSvH) {
+  // The marker below overhangs the strip by 2 px top and bottom. Repainting
+  // only the gradient band therefore left every previous marker's ends
+  // behind, and they accumulated into a row of ticks across the strip. Clear
+  // the whole band the marker can touch, not just the part the gradient
+  // covers. Same lesson as the chart and the tap ripple: on this panel,
+  // erase exactly what you are about to draw over.
+  gfx->fillRect(x, y - 2, w, h + 4, currentTheme->card);
   for (int16_t i = 0; i < w; i++) {
     float t = (float)i / (float)(w - 1);
     // Invert doseScalePosition to colour the strip evenly across the range.
@@ -199,10 +206,16 @@ static void updateStatusCard(bool force = false) {
     Cards::leftText(STAT_X + 10, STAT_Y + 28, batBuf, 2, currentTheme->text);
   }
 
+  // The detector's own accumulation clock, not wall-clock since connect.
+  // liveTimeSeconds restarts at every connect, so it read 00:00 while the
+  // analysis on screen was based on hours of accumulated counts - the
+  // spectrum survives dropouts, disconnects and reboots, and the elapsed
+  // time shown beside it has to mean the same thing. This is also the
+  // figure the Analysis screen already uses, and it is what RESET clears.
   char timeBuf[16];
-  formatTime(g_data.liveTimeSeconds, timeBuf, sizeof(timeBuf));
+  formatTime(g_data.spectrumDurationSec, timeBuf, sizeof(timeBuf));
   char liveBuf[24];
-  snprintf(liveBuf, sizeof(liveBuf), "LIVE %s", timeBuf);
+  snprintf(liveBuf, sizeof(liveBuf), "ACQ %s", timeBuf);
   if (force || strcmp(liveBuf, lastLiveBuf) != 0) {
     strncpy(lastLiveBuf, liveBuf, sizeof(lastLiveBuf));
     gfx->fillRect(STAT_X + 10, STAT_Y + 50, STAT_W - 20, 16, currentTheme->card);
