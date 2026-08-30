@@ -5,8 +5,12 @@
 // Where the device looks for new firmware. The repo is public, so releases
 // are fetched anonymously over HTTPS and no token has to live on the device.
 #define UPDATE_HOST      "git.vhelectronics.com"
-#define UPDATE_REPO_PATH "/highway/Radiacode110"
-#define FIRMWARE_VERSION "1.0.1"
+#define UPDATE_REPO_PATH "/highway/RadiaCode-Spectrometer"
+// Overridable from platformio.ini / build flags so a bench build can pretend
+// to be older and exercise the update path.
+#ifndef FIRMWARE_VERSION
+#define FIRMWARE_VERSION "1.0.2"
+#endif
 
 // Small persisted preferences, kept in NVS next to the background reference.
 //

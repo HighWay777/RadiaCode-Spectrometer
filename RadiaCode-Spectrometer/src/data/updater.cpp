@@ -8,6 +8,11 @@
 #include <ArduinoJson.h>
 #include <string.h>
 
+// Set to 1 only to verify the update path on the bench; see begin().
+#ifndef OTA_SELFTEST
+#define OTA_SELFTEST 0
+#endif
+
 namespace Updater {
 
 static State s_state = IDLE;
@@ -17,7 +22,13 @@ static char s_assetUrl[220] = "";
 static int s_progress = 0;
 static volatile bool s_reqCheck = false;
 static volatile bool s_reqInstall = false;
+static volatile bool s_reqWifi = false;
 static bool s_started = false;
+static char s_ip[20] = "";
+
+bool wifiConnected() { return WiFi.status() == WL_CONNECTED; }
+const char* wifiIp() { return s_ip; }
+void connectWifi() { s_reqWifi = true; }
 
 State state() { return s_state; }
 const char* statusText() { return s_status; }
@@ -67,8 +78,76 @@ static bool ensureWifi() {
     vTaskDelay(pdMS_TO_TICKS(250));
   }
   if (WiFi.status() != WL_CONNECTED) {
-    setStatus(FAILED, "WiFi connect failed");
+    // Distinguish "wrong password / no such network" from "server problem",
+    // which are fixed in completely different places.
+    setStatus(FAILED, "WiFi failed - check name and password");
+    s_ip[0] = '\0';
     return false;
+  }
+  snprintf(s_ip, sizeof(s_ip), "%s", WiFi.localIP().toString().c_str());
+  Serial.printf("[OTA] WiFi connected, IP %s\n", s_ip);
+  return true;
+}
+
+static void doWifiOnly() {
+  if (ensureWifi()) setStatus(IDLE, "WiFi connected - %s", s_ip);
+}
+
+// Preferred check: a plain text manifest committed in the repo and fetched
+// over an ordinary raw file path.
+//
+// Why not the API: on the reference server, Cloudflare returns an empty 403
+// for every /api/* request while normal repo paths pass through. A manifest
+// therefore works where the API cannot, needs no JSON parsing, and behaves
+// the same on any Git host. The API is still tried as a fallback below.
+//
+// firmware/latest.txt:
+//   version=1.0.1
+//   url=https://host/owner/repo/releases/download/v1.0.1/firmware.bin
+static bool doCheckManifest() {
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  char url[240];
+  snprintf(url, sizeof(url), "https://%s%s/raw/branch/main/firmware/latest.txt",
+           UPDATE_HOST, UPDATE_REPO_PATH);
+  Serial.printf("[OTA] GET %s\n", url);
+  const char* wantHeaders[] = {"Content-Type"};
+  http.collectHeaders(wantHeaders, 1);
+  if (!http.begin(client, url)) return false;
+  http.setTimeout(10000);
+  int code = http.GET();
+  if (code != 200) { http.end(); return false; }
+
+  // A sign-in-protected server answers 200 with an HTML login page.
+  String ctype = http.header("Content-Type");
+  String body = http.getString();
+  http.end();
+  if (ctype.indexOf("html") >= 0 || body.indexOf("<!DOCTYPE") >= 0) return false;
+
+  String ver, bin;
+  int start = 0;
+  while (start < (int)body.length()) {
+    int nl = body.indexOf('\n', start);
+    if (nl < 0) nl = body.length();
+    String line = body.substring(start, nl);
+    line.trim();
+    if (line.startsWith("version=")) ver = line.substring(8);
+    else if (line.startsWith("url=")) bin = line.substring(4);
+    start = nl + 1;
+  }
+  ver.trim(); bin.trim();
+  if (ver.length() == 0 || bin.length() == 0) return false;
+
+  strncpy(s_latest, ver.c_str(), sizeof(s_latest) - 1);
+  s_latest[sizeof(s_latest) - 1] = '\0';
+  strncpy(s_assetUrl, bin.c_str(), sizeof(s_assetUrl) - 1);
+  s_assetUrl[sizeof(s_assetUrl) - 1] = '\0';
+
+  if (versionCompare(s_latest, FIRMWARE_VERSION) <= 0) {
+    setStatus(UP_TO_DATE, "Up to date (%s)", FIRMWARE_VERSION);
+  } else {
+    setStatus(AVAILABLE, "Version %s available", s_latest);
   }
   return true;
 }
@@ -76,6 +155,10 @@ static bool ensureWifi() {
 static void doCheck() {
   if (!ensureWifi()) return;
   setStatus(CHECKING, "Checking for updates...");
+
+  // Manifest first: it survives an API-blocking proxy.
+  if (doCheckManifest()) return;
+  Serial.println("[OTA] No manifest, falling back to the Gitea API");
 
   WiFiClientSecure client;
   // Gitea uses a normal public CA, but pinning a root here would break the
@@ -88,15 +171,46 @@ static void doCheck() {
   char url[220];
   snprintf(url, sizeof(url), "https://%s/api/v1/repos%s/releases/latest",
            UPDATE_HOST, UPDATE_REPO_PATH);
+  Serial.printf("[OTA] GET %s\n", url);
+  // Needed to tell a real API answer from a login page served as 200.
+  const char* wantHeaders[] = {"Content-Type"};
+  http.collectHeaders(wantHeaders, 1);
   if (!http.begin(client, url)) {
     setStatus(FAILED, "Cannot reach %s", UPDATE_HOST);
     return;
   }
   http.setTimeout(10000);
   int code = http.GET();
+
+  if (code < 0) {
+    http.end();
+    setStatus(FAILED, "Cannot reach %s", UPDATE_HOST);
+    return;
+  }
+  if (code == 403 || code == 401) {
+    // Seen on a real server: Gitea with REQUIRE_SIGNIN_VIEW enabled, or a
+    // proxy blocking /api. Anonymous clients cannot read anything.
+    http.end();
+    setStatus(FAILED, "Server needs login - make the repo public");
+    return;
+  }
+  if (code == 404) {
+    http.end();
+    setStatus(FAILED, "No release published yet for this repo");
+    return;
+  }
   if (code != 200) {
     http.end();
     setStatus(FAILED, "Update server returned %d", code);
+    return;
+  }
+
+  // A sign-in-protected Gitea answers 200 with an HTML login page, which
+  // would otherwise be parsed as JSON and reported as a vague parse error.
+  String ctype = http.header("Content-Type");
+  if (ctype.indexOf("json") < 0) {
+    http.end();
+    setStatus(FAILED, "Got a web page, not release data - repo not public");
     return;
   }
 
@@ -144,54 +258,92 @@ static void doInstall() {
   if (!s_assetUrl[0]) { setStatus(FAILED, "Nothing to install"); return; }
   if (!ensureWifi()) return;
 
-  setStatus(DOWNLOADING, "Downloading %s...", s_latest);
   s_progress = 0;
+
+  // Erase BEFORE opening the connection. esp_ota_begin() erases the whole
+  // target region up front, which takes many seconds on a 1.6 MB image; doing
+  // it with an HTTPS socket already open left that socket idle long enough
+  // for the far end to drop it, and the download then stalled and failed.
+  setStatus(DOWNLOADING, "Preparing flash...");
+  size_t space = ESP.getFreeSketchSpace();
+  Serial.printf("[OTA] Free OTA space %u bytes, heap %u\n",
+                (unsigned)space, (unsigned)ESP.getFreeHeap());
+  if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+    setStatus(FAILED, "No OTA partition (err %d)", (int)Update.getError());
+    return;
+  }
+
+  setStatus(DOWNLOADING, "Downloading %s...", s_latest);
 
   WiFiClientSecure client;
   client.setInsecure();
+  // Note: this core's WiFiClientSecure has no setBufferSizes(); the mbedTLS
+  // buffers are fixed. Heap is logged above so an allocation failure during a
+  // 1.6 MB TLS transfer alongside BLE is visible rather than mysterious.
   HTTPClient http;
-  if (!http.begin(client, s_assetUrl)) { setStatus(FAILED, "Download failed to start"); return; }
-  http.setTimeout(15000);
-  // Gitea redirects release assets to storage.
-  const char* headers[] = {"Location"};
-  http.collectHeaders(headers, 1);
+  if (!http.begin(client, s_assetUrl)) {
+    Update.abort();
+    setStatus(FAILED, "Download failed to start");
+    return;
+  }
+  http.setTimeout(20000);
+  http.setConnectTimeout(15000);
+  // Release assets are commonly served via a redirect.
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+
   int code = http.GET();
-  if (code != 200) { http.end(); setStatus(FAILED, "Download HTTP %d", code); return; }
+  if (code != 200) {
+    http.end();
+    Update.abort();
+    setStatus(FAILED, "Download HTTP %d", code);
+    return;
+  }
 
   int total = http.getSize();
-  if (total <= 0) { http.end(); setStatus(FAILED, "Unknown firmware size"); return; }
-
-  // Writes into the *inactive* OTA slot; the running image is untouched, so a
-  // failure here is harmless and the device stays on the current version.
-  if (!Update.begin(total)) {
+  if (total > 0 && (size_t)total > space) {
     http.end();
-    setStatus(FAILED, "Not enough space (%d bytes)", total);
+    Update.abort();
+    setStatus(FAILED, "Image %d B > %u B free", total, (unsigned)space);
     return;
   }
 
   WiFiClient* stream = http.getStreamPtr();
-  uint8_t chunk[1024];
+  static uint8_t chunk[2048];
   int written = 0;
   unsigned long lastData = millis();
-  while (written < total) {
+
+  // Loop on the connection rather than only on a known length, so a chunked
+  // or redirected response still completes.
+  while ((total <= 0 || written < total) && (http.connected() || stream->available())) {
     size_t avail = stream->available();
     if (avail) {
       int n = stream->readBytes(chunk, avail > sizeof(chunk) ? sizeof(chunk) : avail);
       if (n <= 0) break;
-      if (Update.write(chunk, n) != (size_t)n) break;
+      if (Update.write(chunk, n) != (size_t)n) {
+        Serial.printf("[OTA] flash write failed at %d bytes, err %d\n", written, (int)Update.getError());
+        break;
+      }
       written += n;
-      s_progress = (int)((int64_t)written * 100 / total);
+      if (total > 0) s_progress = (int)((int64_t)written * 100 / total);
       lastData = millis();
     } else {
-      if (millis() - lastData > 15000) break;  // stalled
-      vTaskDelay(pdMS_TO_TICKS(10));
+      if (millis() - lastData > 20000) { Serial.println("[OTA] stream stalled"); break; }
+      vTaskDelay(pdMS_TO_TICKS(5));
     }
   }
   http.end();
+  Serial.printf("[OTA] Downloaded %d of %d bytes, heap %u\n",
+                written, total, (unsigned)ESP.getFreeHeap());
 
-  if (written != total || !Update.end(true)) {
+  if (total > 0 && written != total) {
     Update.abort();
-    setStatus(FAILED, "Update aborted at %d%%", s_progress);
+    setStatus(FAILED, "Incomplete: %d of %d B", written, total);
+    return;
+  }
+  if (!Update.end(true)) {
+    int err = (int)Update.getError();
+    Update.abort();
+    setStatus(FAILED, "Verify failed (err %d)", err);
     return;
   }
 
@@ -202,6 +354,7 @@ static void doInstall() {
 
 static void updaterTask(void*) {
   for (;;) {
+    if (s_reqWifi)    { s_reqWifi = false;    doWifiOnly(); }
     if (s_reqCheck)   { s_reqCheck = false;   doCheck(); }
     if (s_reqInstall) { s_reqInstall = false; doInstall(); }
     vTaskDelay(pdMS_TO_TICKS(100));
@@ -219,6 +372,24 @@ void begin() {
     Serial.println("[OTA] Auto-update enabled, checking at startup");
     s_reqCheck = true;
   }
+
+#if OTA_SELFTEST
+  // Development aid: drive a full check-and-install at boot so the update
+  // path can be exercised end to end without anyone tapping the screen.
+  // Never enabled in a released build.
+  if (Settings::hasWifi()) {
+    Serial.println("[OTA] SELFTEST: checking and installing automatically");
+    xTaskCreatePinnedToCore([](void*) {
+      vTaskDelay(pdMS_TO_TICKS(4000));
+      checkForUpdate();
+      // Wait for the check to settle, then install if something is offered.
+      for (int i = 0; i < 60 && busy(); i++) vTaskDelay(pdMS_TO_TICKS(500));
+      Serial.printf("[OTA] SELFTEST: state=%d status=%s\n", (int)state(), statusText());
+      if (state() == AVAILABLE) installUpdate();
+      vTaskDelete(nullptr);
+    }, "otatest", 4096, nullptr, 1, nullptr, 1);
+  }
+#endif
 }
 
 void checkForUpdate() { if (!busy()) s_reqCheck = true; }

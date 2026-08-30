@@ -59,8 +59,8 @@ Nothing needs soldering; the board is used as sold.
 Built with [PlatformIO](https://platformio.org/).
 
 ```bash
-git clone https://git.vhelectronics.com/highway/Radiacode110.git
-cd Radiacode110/RadiaCode-Spectrometer
+git clone https://git.vhelectronics.com/highway/RadiaCode-Spectrometer.git
+cd RadiaCode-Spectrometer/RadiaCode-Spectrometer
 pio run -t upload
 ```
 
