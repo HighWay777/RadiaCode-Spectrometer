@@ -33,6 +33,10 @@
 #include "data/spectrometer_data.h"
 #include "data/ble_source.h"
 
+#ifndef RESET_SPECTRUM_ON_BOOT
+#define RESET_SPECTRUM_ON_BOOT 0
+#endif
+
 // QSPI pin mapping for display
 #define PIN_CS  45
 #define PIN_SCK 47
@@ -138,6 +142,14 @@ static void drawSplash() {
 }
 
 static void goToScreen(AppScreen target, TransitionType type) {
+  // "Test my credentials" on the Settings screen leaves the WiFi station
+  // up so the IP can be displayed. WiFi and Bluedroid cannot both hold
+  // their buffers on this board, so it must not survive the screen: leaving
+  // Settings powers it down and the measurement resumes.
+  if (currentScreen == SCR_SETTINGS && target != SCR_SETTINGS &&
+      Updater::wifiConnected() && !Updater::busy()) {
+    Updater::releaseWifiNow();
+  }
   currentScreen = target;
   void (*fn)() = nullptr;
   switch (target) {
@@ -174,6 +186,12 @@ static void updateCurrentScreen() {
 }
 
 void setup() {
+  // The analysis task emits a burst of ~15 debug lines every few seconds from
+  // core 0 while core 1 logs too; on the stock 256-byte TX buffer those bursts
+  // came out interleaved and with characters missing. 1 KB is enough to fix
+  // that - deliberately not more, because heap here is contended with
+  // Bluedroid and that is a far more expensive thing to run short of.
+  Serial.setTxBufferSize(1024);
   Serial.begin(115200);
   delay(300);
   Serial.println("\nRadiaCode Spectrometer UI starting...");
@@ -284,6 +302,15 @@ void setup() {
 
   BleSource::begin();          // BLE + analysis worker on core 0
   BleSource::beginAutoStart(); // performed by that task, so setup() never blocks
+
+#if RESET_SPECTRUM_ON_BOOT
+  // Bench aid: discard whatever the detector has accumulated so a test run
+  // starts from zero without anyone tapping RESET. Never set in a release
+  // build - the whole point of the normal path is that counts survive a
+  // reboot. See "Continuous acquisition" in CLAUDE.md.
+  Serial.println("[BOOT] RESET_SPECTRUM_ON_BOOT - clearing accumulated spectrum");
+  BleSource::resetSpectrum();
+#endif
   Updater::begin();            // own task; checks at boot only if enabled
 }
 

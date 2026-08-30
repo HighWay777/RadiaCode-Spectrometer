@@ -388,6 +388,38 @@ static void computeBestClaims(const DetectedPeak* peaks, int peakCount) {
 // verdict guard caught it, but the candidate list should never have shown it.
 #define MIN_CANDIDATE_SIGMA 3.0f
 
+// A single chain member this strong, with this many independently matched
+// lines, establishes the chain without a second member (see scoreChain()).
+#define CHAIN_SOLO_CONFIDENCE 0.75f
+#define CHAIN_SOLO_LINES      3
+
+// Below this, unmodelled X-ray fluorescence and backscatter dominate; a line
+// down here cannot by itself identify a nuclide (see scoreIsotopes()).
+#define XRAY_REGION_KEV 110.0f
+
+// Competitive assignment for the ROI path.
+//
+// Peak matching already refuses to credit a nuclide whose line sits further
+// from a peak than some other nuclide's line. The ROI fallback had no such
+// check, so a nuclide rejected by that competition simply won the same
+// excess through ROI instead - which is how Ba-133 kept claiming the real
+// Ac-228/Pb-214 blend near 340 keV on uranium ore and scored 89%. The excess
+// found in a window has to belong to whichever line best explains where it
+// actually sits.
+static bool roiBetterExplainedElsewhere(uint16_t ownIso, float centroidKeV,
+                                        float lineEnergyKeV, float fwhm) {
+  float ownDist = fabsf(centroidKeV - lineEnergyKeV);
+  for (uint16_t iso = 0; iso < IsotopeLibrary::count(); iso++) {
+    if (iso == ownIso) continue;
+    const IsotopeDef& other = IsotopeLibrary::at(iso);
+    for (uint8_t li = 0; li < other.lineCount; li++) {
+      float d = fabsf(centroidKeV - other.lines[li].energyKeV);
+      if (d + fwhm * SHARE_MARGIN_FWHM < ownDist) return true;
+    }
+  }
+  return false;
+}
+
 static void scoreIsotopes(const SpectrometerData& d, const DetectedPeak* peaks, int peakCount) {
   memset(scores, 0, sizeof(scores));
   computeBestClaims(peaks, peakCount);
@@ -405,6 +437,23 @@ static void scoreIsotopes(const SpectrometerData& d, const DetectedPeak* peaks, 
       if (dt > maxDetect) maxDetect = dt;
     }
     if (totalDetect <= 0.0f) continue;
+
+    // Below ~110 keV the spectrum is a pile-up of lead/bismuth/thorium K
+    // X-ray fluorescence, backscatter and the Compton edge - none of which
+    // are in the library. Any dense, high-Z sample therefore grows a large
+    // bump there, and on real ore Ba-133's 81 keV line claimed it and scored
+    // 76%. So a nuclide that also emits above that region must be identified
+    // by one of those higher lines; the low one may still corroborate.
+    // Nuclides whose signature genuinely is low-energy only (Am-241 at 59.5)
+    // keep their own strongest line, since there is nothing else to use.
+    float definingDetect = 0.0f;
+    for (uint8_t li = 0; li < def.lineCount; li++) {
+      if (def.lines[li].energyKeV < XRAY_REGION_KEV) continue;
+      float dt = detectabilityOf(def.lines[li]);
+      if (dt > definingDetect) definingDetect = dt;
+    }
+    bool lowEnergyOnly = (definingDetect <= 0.0f);
+    if (lowEnergyOnly) definingDetect = maxDetect;
 
     // Lines we could reasonably expect to see if this nuclide is present.
     // A line 10x less detectable than the best one needs ~100x the counting
@@ -442,7 +491,8 @@ static void scoreIsotopes(const SpectrometerData& d, const DetectedPeak* peaks, 
                          (bestDist <= bestClaimDist[bestPeakIdx] + fwhm * SHARE_MARGIN_FWHM);
 
       float dt = detectabilityOf(line);
-      bool isPrimary = (dt >= maxDetect * 0.999f);
+      bool isPrimary = (dt >= definingDetect * 0.999f) &&
+                       (lowEnergyOnly || line.energyKeV >= XRAY_REGION_KEV);
       float matchEnergy = 0.0f, matchNet = 0.0f, matchSigma = 0.0f;
 
       if (peakMatched) {
@@ -458,6 +508,8 @@ static void scoreIsotopes(const SpectrometerData& d, const DetectedPeak* peaks, 
         // The excess must actually be centred on this line, not be the
         // shoulder of a stronger neighbouring peak leaking into the window.
         if (fabsf(roi.centroidKeV - line.energyKeV) > fwhm * ROI_CENTROID_FWHM) continue;
+        // ...and it must not be better explained by another nuclide's line.
+        if (roiBetterExplainedElsewhere(iso, roi.centroidKeV, line.energyKeV, fwhm)) continue;
         matchEnergy = line.energyKeV;
         matchNet = roi.net;
         matchSigma = roi.sigma;
@@ -500,16 +552,26 @@ static void scoreIsotopes(const SpectrometerData& d, const DetectedPeak* peaks, 
 static ChainResult scoreChain(DecayChain chain) {
   ChainResult r = {0.0f, 0, 0};
   float pMiss = 1.0f;
+  bool selfSufficient = false;
   for (uint16_t iso = 0; iso < IsotopeLibrary::count(); iso++) {
     if (IsotopeLibrary::at(iso).chain != chain) continue;
     r.membersTotal++;
     if (scores[iso].value >= 0.30f) {
       r.membersDetected++;
       pMiss *= (1.0f - scores[iso].value);
+      // A member can be conclusive on its own. Bi-214 matching four of its
+      // seven lines is uranium whatever else is or is not resolved, and
+      // demanding a second member then reported 0% for the chain while that
+      // nuclide sat at 92% in the candidate list. Corroboration is only
+      // needed when the single member is itself ambiguous, so several
+      // independently matched lines substitute for a second nuclide.
+      if (scores[iso].value >= CHAIN_SOLO_CONFIDENCE &&
+          scores[iso].matched >= CHAIN_SOLO_LINES) {
+        selfSufficient = true;
+      }
     }
   }
-  // Require two independent members before claiming the chain.
-  if (r.membersDetected >= 2) r.confidence = 1.0f - pMiss;
+  if (r.membersDetected >= 2 || selfSufficient) r.confidence = 1.0f - pMiss;
   else r.confidence = 0.0f;
   return r;
 }

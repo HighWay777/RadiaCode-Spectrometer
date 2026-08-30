@@ -204,6 +204,20 @@ BluetoothTransport::~BluetoothTransport(void)
         BLEClient* pClient = (BLEClient*)_peripheral;
         if (s_activeClient == pClient) s_activeClient = nullptr;
         pClient->disconnect();
+        // PATCHED (2026-08-30): the client was never freed. Arduino-ESP32's
+        // BLEDevice::createClient() is a bare `new BLEClient()`, and neither
+        // this library nor BLEDevice::deinit() ever deletes it - so every
+        // connect leaked the client together with its whole discovered
+        // service/characteristic tree. Measured at ~4 KB per connect cycle on
+        // hardware, which progressively starved the heap until the TLS
+        // handshake used by OTA could no longer allocate.
+        //
+        // disconnect() is asynchronous, so let its callback run before the
+        // object goes away. BLEDevice::m_pClient is left dangling, which is
+        // safe: it is only ever reassigned by the next createClient().
+        delay(100);
+        delete pClient;
+        _peripheral = nullptr;
     }
 #endif
 

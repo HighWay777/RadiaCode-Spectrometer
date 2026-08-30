@@ -31,6 +31,17 @@ namespace Updater {
   void checkForUpdate();
   void installUpdate();     // only meaningful after AVAILABLE
 
+  // WiFi state, so the UI can show whether the network actually came up
+  // rather than leaving the user guessing after entering credentials.
+  bool wifiConnected();
+  const char* wifiIp();
+  void connectWifi();       // connect only, for a "test my credentials" tap
+
+  // Powers the WiFi station down and lets the BLE measurement resume.
+  // WiFi and Bluedroid cannot both hold their buffers on this board, so
+  // nothing may keep the station up once it is no longer needed.
+  void releaseWifiNow();
+
   State state();
   const char* statusText();
   const char* latestVersion();

@@ -30,6 +30,10 @@ static bool haveSpectrumSample = false;
 // Auto-reconnect state. userWantsConnection stays true from an explicit
 // CONNECT until an explicit DISCONNECT, so a dropped link is retried but a
 // deliberate disconnect is respected.
+// Whether Bluedroid is currently initialised. BLEDevice::init() is
+// idempotent and both call sites invoke it, so the stack comes back on
+// the next connect without any explicit re-init here.
+static bool bleStackUp = false;
 static bool userWantsConnection = false;
 static unsigned long nextRetryMs = 0;
 static int reconnectAttempts = 0;
@@ -46,6 +50,7 @@ static const unsigned long SPECTRUM_POLL_MS = 5000;
 // Every discovered device is logged to Serial so a mismatch is diagnosable.
 static bool findDeviceAddress(String& outAddress) {
   BLEDevice::init("RadiaCodeSpectrometer");
+  bleStackUp = true;
   BLEScan* scanner = BLEDevice::getScan();
   scanner->setActiveScan(true);
 
@@ -168,6 +173,41 @@ void requestConnect() {
   reqConnect = true;
 }
 
+// Set while WiFi needs the heap. The task drops the link and stops all BLE
+// work until it is cleared; userWantsConnection is untouched throughout, so
+// a device the user had deliberately disconnected stays disconnected and a
+// running measurement resumes on its own.
+static volatile bool suspended = false;
+// Set by the BLE task once the link is actually down. suspendForWifi()
+// returns before that: a spectrum read is a blocking round trip of up to
+// 4 s, so the caller has to wait for the acknowledgement rather than a
+// fixed delay, or WiFi starts while a transfer is still in flight.
+static volatile bool suspendAcked = false;
+
+void suspendForWifi() {
+  if (suspended) return;
+  // userWantsConnection is deliberately left alone. It is the record of
+  // what the user asked for, and a suspension is not a decision about
+  // that - an intent raised while WiFi holds the radio (connect-at-boot,
+  // or a CONNECT tap) must survive the window rather than be overwritten.
+  suspendAcked = false;
+  suspended = true;
+  Serial.printf("[BLE] Suspending for WiFi (heap %u)\n", (unsigned)ESP.getFreeHeap());
+}
+
+void resumeAfterWifi() {
+  if (!suspended) return;
+  suspended = false;
+  suspendAcked = false;
+  nextRetryMs = 0;            // reconnect on the next tick, no backoff wait
+  reconnectAttempts = 0;
+  Serial.printf("[BLE] Resuming after WiFi (heap %u, reconnect=%d)\n",
+                (unsigned)ESP.getFreeHeap(), (int)userWantsConnection);
+}
+
+// True only once the radio is genuinely released.
+bool isSuspended() { return suspendAcked; }
+
 void requestDisconnect() { reqDisconnect = true; }
 void resetSpectrum()     { reqReset = true; }
 
@@ -219,8 +259,12 @@ bool reconnectPending() {
          g_data.connection == CONN_DISCONNECTED;
 }
 
-static void doReset() {
-  if (g_data.connection != CONN_CONNECTED || device == nullptr) return;
+// Returns false if the reset could not be performed yet, so the caller keeps
+// the request pending. Resetting means "start a fresh measurement", and the
+// counts live on the detector, so a RESET tapped while the link is down has
+// to be honoured on the next connect rather than silently discarded.
+static bool doReset() {
+  if (g_data.connection != CONN_CONNECTED || device == nullptr) return false;
   device->spectrumReset();
   memset(g_data.spectrum, 0, sizeof(g_data.spectrum));
   g_data.spectrumDurationSec = 0;
@@ -233,6 +277,7 @@ static void doReset() {
   lastSpectrumPollMs = 0;
   connectedSinceMs = millis();
   Serial.println("[BLE] Spectrum reset - new measurement started");
+  return true;
 }
 
 static void pollRealtime() {
@@ -378,7 +423,37 @@ static void tickInternal() {
 static void bleTask(void*) {
   for (;;) {
     if (reqDisconnect) { reqDisconnect = false; doDisconnect(); }
-    if (reqReset)      { reqReset = false;      doReset(); }
+
+    if (suspended) {
+      // Release the radio and idle. This continue skips tickInternal(), so
+      // the reconnect path cannot run while WiFi holds the heap - no flag
+      // needs clearing, and clearing one would lose a connect requested
+      // during the window. A deliberate DISCONNECT is still honoured: it
+      // is handled above this block.
+      if (device != nullptr) {
+        delete device;
+        device = nullptr;
+        g_data.connection = CONN_DISCONNECTED;
+        g_data.cps = 0;
+        g_data.doseRateUSvH = 0;
+      }
+      // Deleting the client is not enough: Bluedroid stays initialised and
+      // keeps its buffers, so only ~4 KB came back and TLS still could not
+      // get the ~40-50 KB it needs ("SSL - Memory allocation failed").
+      // Tearing the whole stack down returns that memory. deinit(false) is
+      // deliberate - deinit(true) calls esp_bt_controller_mem_release() and
+      // BLE could then never be started again this boot.
+      if (bleStackUp) {
+        BLEDevice::deinit(false);
+        bleStackUp = false;
+        Serial.printf("[BLE] Stack down for WiFi - detector keeps counting (heap %u)\n", (unsigned)ESP.getFreeHeap());
+      }
+      suspendAcked = true;           // safe for WiFi to start now
+      vTaskDelay(pdMS_TO_TICKS(100));
+      continue;
+    }
+
+    if (reqReset && doReset()) reqReset = false;
     if (reqConnect)    { reqConnect = false;    doConnect(); }
     tickInternal();
     vTaskDelay(pdMS_TO_TICKS(50));

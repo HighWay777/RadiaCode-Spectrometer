@@ -26,6 +26,19 @@ namespace BleSource {
   // connection so setup() is not blocked by a BLE scan.
   void beginAutoStart();
 
+  // Bluedroid and the WiFi stack together do not fit in this board's heap:
+  // bringing WiFi up while BLE was streaming produced "BLE_INIT: Malloc
+  // failed" and every spectrum transfer then truncated mid-read. So WiFi work
+  // suspends the link first and resumes it afterwards. This costs nothing -
+  // the detector accumulates internally the whole time, exactly as it does
+  // across a dropout or a reboot.
+  //
+  // suspend() is safe to nest-call and remembers whether a link was up, so
+  // resume() only reconnects if it actually interrupted one.
+  void suspendForWifi();
+  void resumeAfterWifi();
+  bool isSuspended();
+
   // True while an auto-reconnect is pending, so the UI can say "reconnecting"
   // rather than plain "offline".
   bool reconnectPending();
