@@ -98,6 +98,12 @@ struct SpectrometerData {
   uint8_t candidateCount = 0;
 
   SourceClass sourceClass = SRC_INSUFFICIENT;
+  // How well supported that verdict is, 0..1. A verdict computed from
+  // counting statistics is never simply true or false, and presenting it as
+  // a bare word made the display flip between URANIUM and BACKGROUND as the
+  // evidence wandered across a threshold. The UI shows this instead of
+  // pretending to certainty it does not have.
+  float verdictConfidence = 0.0f;
   ChainResult uranium = {0.0f, 0, 6};
   ChainResult thorium = {0.0f, 0, 4};
   QualityInfo quality = {0, 0.0f, 0.0f, QUAL_POOR, 0, 0, 0};
@@ -123,5 +129,6 @@ inline float channelToKeV(const SpectrometerData& d, int channel) {
 }
 
 const char* sourceClassLabel(SourceClass c);
+const char* sourceClassLabelGraded(SourceClass c, float confidence);
 const char* sourceClassDetail(SourceClass c);
 const char* qualityGradeLabel(QualityGrade g);

@@ -69,7 +69,7 @@ static void updateVerdict(bool force) {
   lastClass = g_data.sourceClass;
 
   gfx->fillRect(VERD_X + 4, VERD_Y + 20, VERD_W - 8, VERD_H - 24, currentTheme->card);
-  Cards::leftText(VERD_X + 12, VERD_Y + 22, sourceClassLabel(g_data.sourceClass), 3,
+  Cards::leftText(VERD_X + 12, VERD_Y + 22, sourceClassLabelGraded(g_data.sourceClass, g_data.verdictConfidence), 3,
                   verdictColor(g_data.sourceClass));
   Cards::leftText(VERD_X + 12, VERD_Y + 48, sourceClassDetail(g_data.sourceClass), 1,
                   currentTheme->textSecondary);
@@ -86,6 +86,18 @@ static void updateQuality(bool force) {
   lastSigmaTenths = sigmaTenths;
 
   gfx->fillRect(QUAL_X + 4, QUAL_Y + 20, QUAL_W - 8, QUAL_H - 24, currentTheme->card);
+
+  // With nothing identified there is no identification to be confident in,
+  // and printing "0.0 sigma" beside an empty bar just looks broken. Say what
+  // is actually true instead.
+  if (g_data.candidateCount == 0) {
+    Cards::leftText(QUAL_X + 12, QUAL_Y + 24, "NO ID YET", 2,
+                    currentTheme->textSecondary);
+    Cards::leftText(QUAL_X + 12, QUAL_Y + 46, "keep measuring", 1,
+                    currentTheme->textSecondary);
+    return;
+  }
+
   Cards::leftText(QUAL_X + 12, QUAL_Y + 24, qualityGradeLabel(g_data.quality.grade), 2,
                   gradeColor(g_data.quality.grade));
 

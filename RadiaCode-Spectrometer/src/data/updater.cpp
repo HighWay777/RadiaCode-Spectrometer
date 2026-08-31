@@ -34,6 +34,10 @@ static volatile bool s_reqCheck = false;
 static volatile bool s_reqInstall = false;
 static volatile bool s_reqWifi = false;
 static volatile bool s_reqRelease = false;
+// Startup update check is deferred until after the detector has had time to
+// connect; 0 means none pending.
+static unsigned long s_startupCheckAtMs = 0;
+#define STARTUP_CHECK_DELAY_MS 45000UL
 static bool s_started = false;
 static char s_ip[20] = "";
 
@@ -103,8 +107,21 @@ static bool ensureWifi() {
   // spectrum read then truncated mid-transfer. Drop the link first - the
   // detector keeps counting regardless, so no measurement is lost.
   BleSource::suspendForWifi();
-  for (int i = 0; i < 120 && !BleSource::isSuspended(); i++) {
-    vTaskDelay(pdMS_TO_TICKS(50));  // up to 6 s: a spectrum read can be 4 s
+  // Wait for the radio to be genuinely released, and if it is not, give up
+  // rather than start WiFi anyway. The BLE task only tests the flag between
+  // operations, and a scan-and-connect cycle runs about 10 s, so the old
+  // 6 s cap expired mid-connect: WiFi came up with Bluedroid still holding
+  // its buffers (103 KB free instead of 167 KB), TLS could not get its
+  // memory, the manifest fetch fell back to the slow API path, and the BLE
+  // connect was disrupted badly enough to need a second attempt.
+  for (int i = 0; i < 400 && !BleSource::isSuspended(); i++) {
+    vTaskDelay(pdMS_TO_TICKS(50));   // up to 20 s
+  }
+  if (!BleSource::isSuspended()) {
+    Serial.println("[OTA] BLE did not release the radio - deferring");
+    BleSource::resumeAfterWifi();
+    setStatus(IDLE, "Busy with the detector - try again");
+    return false;
   }
 
   setStatus(WIFI_CONNECTING, "Connecting to %s...", Settings::wifiSsid());
@@ -397,6 +414,10 @@ static void updaterTask(void*) {
     // between operations would keep BLE starved indefinitely, which is
     // the exact failure this ordering exists to prevent. A successful
     // install reboots and never reaches the release.
+    if (s_startupCheckAtMs != 0 && millis() >= s_startupCheckAtMs) {
+      s_startupCheckAtMs = 0;
+      s_reqCheck = true;
+    }
     if (s_reqCheck)   { s_reqCheck = false;   doCheck();   releaseWifi(); }
     if (s_reqInstall) { s_reqInstall = false; doInstall(); releaseWifi(); }
     // "Test my credentials" keeps the link up so Settings can show the IP;
@@ -415,8 +436,11 @@ void begin() {
   // and keeps core 0 free for BLE.
   xTaskCreatePinnedToCore(updaterTask, "ota", 10240, nullptr, 1, nullptr, 1);
   if (Settings::autoUpdate() && Settings::hasWifi()) {
-    Serial.println("[OTA] Auto-update enabled, checking at startup");
-    s_reqCheck = true;
+    // Deferred, so the detector connects first. Firing this at boot put the
+    // update check and the BLE connect on top of each other every single
+    // time, and they cannot share the radio memory.
+    Serial.println("[OTA] Auto-update enabled, checking once the link is up");
+    s_startupCheckAtMs = millis() + STARTUP_CHECK_DELAY_MS;
   }
 
 #if WIFI_BLE_STRESS

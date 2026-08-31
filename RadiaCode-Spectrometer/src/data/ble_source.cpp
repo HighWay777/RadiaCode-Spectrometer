@@ -34,6 +34,10 @@ static bool haveSpectrumSample = false;
 // idempotent and both call sites invoke it, so the stack comes back on
 // the next connect without any explicit re-init here.
 static bool bleStackUp = false;
+// Consecutive scans that did not see the detector, and the point at which
+// we stop assuming the problem is on the other end.
+static int failedScans = 0;
+static const int SCAN_FAILS_BEFORE_STACK_RESET = 3;
 static bool userWantsConnection = false;
 static unsigned long nextRetryMs = 0;
 static int reconnectAttempts = 0;
@@ -89,8 +93,21 @@ static bool connectInternal(bool freshStart) {
   if (!findDeviceAddress(address)) {
     Serial.println("[BLE] No RadiaCode device found nearby.");
     g_data.connection = CONN_DISCONNECTED;
+    // A run of failed scans can mean our own controller is holding a stale
+    // connection handle, in which case scanning will never see the device
+    // again however long we retry. Rebuild the stack to clear it. This is
+    // cheap and safe - deinit(false) keeps the memory re-initialisable, and
+    // init() runs again at the top of the next scan.
+    if (++failedScans >= SCAN_FAILS_BEFORE_STACK_RESET) {
+      failedScans = 0;
+      Serial.println("[BLE] Repeated scan failures - rebuilding BLE stack");
+      BLEDevice::deinit(false);
+      bleStackUp = false;
+      delay(200);
+    }
     return false;
   }
+  failedScans = 0;
 
   Serial.printf("[BLE] Connecting to %s ...\n", address.c_str());
   device = new RadiaCode(address.c_str(), /* ignore_firmware_compatibility_check */ true);
@@ -166,6 +183,7 @@ static bool connectInternal(bool freshStart) {
 static volatile bool reqConnect = false;
 static volatile bool reqDisconnect = false;
 static volatile bool reqReset = false;
+static volatile bool reqPowerOff = false;
 
 void requestConnect() {
   if (g_data.connection != CONN_DISCONNECTED) return;
@@ -209,6 +227,7 @@ void resumeAfterWifi() {
 bool isSuspended() { return suspendAcked; }
 
 void requestDisconnect() { reqDisconnect = true; }
+void requestPowerOff()   { reqPowerOff = true; }
 void resetSpectrum()     { reqReset = true; }
 
 static void doConnect() {
@@ -263,6 +282,25 @@ bool reconnectPending() {
 // the request pending. Resetting means "start a fresh measurement", and the
 // counts live on the detector, so a RESET tapped while the link is down has
 // to be honoured on the next connect rather than silently discarded.
+// Clearing the PWR bit in DEVICE_CTRL powers the detector down. BIT_5 is
+// set and BIT_1 cleared by the library itself, matching what the official
+// client sends. Counts are not lost: the spectrum lives in the detector and
+// survives being switched off, exactly as it survives a BLE dropout.
+static void doPowerOff() {
+  if (g_data.connection != CONN_CONNECTED || device == nullptr) return;
+  Serial.println("[BLE] Powering off the detector");
+  device->setDeviceCtrl((DEV_CTRL)(SOUND | LIGHT | VIBRO));  // PWR bit cleared
+  delay(200);
+  userWantsConnection = false;         // it is gone deliberately; do not retry
+  Settings::setWasConnected(false);
+  delete device;
+  device = nullptr;
+  g_data.connection = CONN_DISCONNECTED;
+  g_data.batteryPercent = -1;
+  g_data.doseRateUSvH = 0;
+  g_data.cps = 0;
+}
+
 static bool doReset() {
   if (g_data.connection != CONN_CONNECTED || device == nullptr) return false;
   device->spectrumReset();
@@ -273,6 +311,10 @@ static bool doReset() {
   g_data.uranium = {0.0f, 0, 0};
   g_data.thorium = {0.0f, 0, 0};
   g_data.quality = {0, 0.0f, 0.0f, QUAL_POOR, 0, 0, 0};
+  resetVerdictHysteresis();   // a new sample starts with no held verdict
+  // The energy-gain correction is deliberately NOT reset: it describes the
+  // detector, not the sample, and re-deriving it from a fresh short
+  // acquisition is exactly what fails.
   haveSpectrumSample = false;
   lastSpectrumPollMs = 0;
   connectedSinceMs = millis();
@@ -453,6 +495,7 @@ static void bleTask(void*) {
       continue;
     }
 
+    if (reqPowerOff)   { reqPowerOff = false;   doPowerOff(); }
     if (reqReset && doReset()) reqReset = false;
     if (reqConnect)    { reqConnect = false;    doConnect(); }
     tickInternal();

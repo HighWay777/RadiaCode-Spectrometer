@@ -1,5 +1,6 @@
 #include "settings.h"
 #include <Preferences.h>
+#include <math.h>
 
 namespace Settings {
 
@@ -16,6 +17,7 @@ static char s_ssid[33] = "";      // 32 chars max per 802.11
 static char s_pass[65] = "";      // 64 chars max for WPA2
 static bool s_setupDone = false;
 static bool s_autoUpdate = false;
+static float s_energyGain = 1.0f;
 
 void begin() {
   Preferences p;
@@ -26,6 +28,8 @@ void begin() {
   s_wasConnected = p.getBool("wascon", false);
   s_setupDone = p.getBool("setupdone", false);
   s_autoUpdate = p.getBool("autoupd", false);
+  s_energyGain = p.getFloat("egain", 1.0f);
+  if (s_energyGain < 0.90f || s_energyGain > 1.10f) s_energyGain = 1.0f;
   String ssid = p.getString("ssid", "");
   String pass = p.getString("pass", "");
   strncpy(s_ssid, ssid.c_str(), sizeof(s_ssid) - 1);
@@ -106,6 +110,16 @@ void setAutoReconnect(bool on) { s_autoReconnect = on; putBool("autorec", on); }
 
 bool connectAtStartup() { return s_connectAtStartup; }
 void setConnectAtStartup(bool on) { s_connectAtStartup = on; putBool("startcon", on); }
+
+float energyGain() { return s_energyGain; }
+
+void setEnergyGain(float g) {
+  if (g < 0.90f || g > 1.10f) return;          // implausible, ignore
+  if (fabsf(g - s_energyGain) < 0.002f) return; // avoid needless NVS wear
+  s_energyGain = g;
+  Preferences p;
+  if (p.begin(NS, false)) { p.putFloat("egain", g); p.end(); }
+}
 
 uint8_t brightness() { return s_brightness; }
 void setBrightness(uint8_t v) {

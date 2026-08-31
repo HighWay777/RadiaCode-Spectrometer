@@ -19,8 +19,9 @@ static const int16_t SRC_X  = 8,   SRC_Y  = 122, SRC_W  = 228, SRC_H  = 88;
 static const int16_t STAT_X = 244, STAT_Y = 122, STAT_W = 228, STAT_H = 88;
 // Bottom row: connect, an explicit RESET (the only thing that discards an
 // accumulated run - see BleSource::requestConnect), and settings.
-static const int16_t BTN_X  = 8,   BTN_Y  = 216, BTN_W  = 288, BTN_H  = 44;
-static const int16_t RST_X  = 302, RST_W  = 84;
+static const int16_t BTN_X  = 8,   BTN_Y  = 216, BTN_W  = 212, BTN_H  = 44;
+static const int16_t PWR_X  = 226, PWR_W  = 72;
+static const int16_t RST_X  = 304, RST_W  = 82;
 static const int16_t SET_X  = 392, SET_W  = 80;
 
 static bool resetArmed = false;
@@ -152,8 +153,15 @@ static void updateCpsCard(bool force = false) {
 static char lastSourceSymbol[16] = "";
 static int lastSourceConfidencePct = -1;
 static SourceClass lastSourceClass = (SourceClass)-1;
+// Confidence in 5% bands, so the card repaints when the number visibly
+// moves but not on every tiny fluctuation.
+static int lastVerdictBand = -1;
+// Acquisition progress in 15 s steps, so the "still measuring" readout
+// advances visibly without repainting the card on every tick.
+static int lastProgressBand = -1;
+static ConnectionState lastSourceConn = (ConnectionState)-1;
 
-// Shows the sample-level verdict ("URANIUM ORE") rather than a single
+// Shows the sample-level verdict ("URANIUM") rather than a single
 // daughter nuclide. For natural samples the individual nuclides are the
 // evidence, not the answer — nobody reading a rock wants to be told
 // "Bi-214". The nuclide breakdown lives on the Isotopes screen.
@@ -161,18 +169,73 @@ static void updateSourceCard(bool force = false) {
   int confidencePct = g_data.candidateCount > 0 ? (int)(g_data.candidates[0].confidence * 100.0f) : -1;
   const char* symbol = g_data.candidateCount > 0 ? g_data.candidates[0].symbol : "";
   if (!force && confidencePct == lastSourceConfidencePct &&
-      g_data.sourceClass == lastSourceClass && strcmp(symbol, lastSourceSymbol) == 0) {
+      g_data.sourceClass == lastSourceClass &&
+      (int)(g_data.verdictConfidence * 20.0f) == lastVerdictBand &&
+      (int)(g_data.spectrumDurationSec / 15) == lastProgressBand &&
+      g_data.connection == lastSourceConn &&
+      strcmp(symbol, lastSourceSymbol) == 0) {
     return;
   }
   lastSourceConfidencePct = confidencePct;
   lastSourceClass = g_data.sourceClass;
+  lastVerdictBand = (int)(g_data.verdictConfidence * 20.0f);
+  lastProgressBand = (int)(g_data.spectrumDurationSec / 15);
+  lastSourceConn = g_data.connection;
   strncpy(lastSourceSymbol, symbol, sizeof(lastSourceSymbol) - 1);
   lastSourceSymbol[sizeof(lastSourceSymbol) - 1] = '\0';
 
   gfx->fillRect(SRC_X + 10, SRC_Y + 26, SRC_W - 20, SRC_H - 34, currentTheme->card);
 
   if (g_data.sourceClass == SRC_INSUFFICIENT && g_data.candidateCount == 0) {
-    Cards::leftText(SRC_X + 10, SRC_Y + 40, "No source", 2, currentTheme->textSecondary);
+    // Nothing is being measured without a link, and saying otherwise is
+    // the kind of thing that makes the whole display untrustworthy. The
+    // accumulated spectrum still lives on the detector, so this is a paused
+    // run rather than a lost one.
+    if (g_data.connection != CONN_CONNECTED) {
+      Cards::leftText(SRC_X + 10, SRC_Y + 28, "NOT CONNECTED", 2,
+                      currentTheme->textSecondary);
+      Cards::leftText(SRC_X + 10, SRC_Y + 50,
+                      g_data.spectrumDurationSec > 0 ? "run paused - reconnect to resume"
+                                                     : "connect the detector to begin",
+                      1, currentTheme->textSecondary);
+      return;
+    }
+
+    // "No source" read as a finding - that there is nothing there - when
+    // what it actually meant was that not enough counts had arrived to say.
+    // Say that instead, and show the progress, so the wait is legible.
+    // Distinguish "nothing here yet" from "something is here, working out
+    // what". At 0.33 uSv/h with a source present the second is the truth,
+    // and the user should not have to guess which one they are looking at.
+    bool above = g_data.doseRateUSvH >= 0.20f || g_data.cps >= 35.0f;
+    Cards::leftText(SRC_X + 10, SRC_Y + 28,
+                    above ? "SOURCE FOUND" : "MEASURING...", 2,
+                    above ? currentTheme->highlight : currentTheme->warning);
+    char prog[40];
+    uint32_t secs = g_data.spectrumDurationSec;
+    if (secs >= 60) {
+      snprintf(prog, sizeof(prog), "%lu counts - %lum %02lus",
+               (unsigned long)g_data.quality.totalCounts,
+               (unsigned long)(secs / 60), (unsigned long)(secs % 60));
+    } else {
+      snprintf(prog, sizeof(prog), "%lu counts - %lus",
+               (unsigned long)g_data.quality.totalCounts, (unsigned long)secs);
+    }
+    if (above) {
+      // The identification needs counts; noticing the elevation did not.
+      // Say plainly that this is not the final answer and that waiting is
+      // what resolves it - "SOURCE FOUND" alone left users unsure whether
+      // the device had finished or was still working. Drawn at the same
+      // size as the headline and in the warning colour so it reads as an
+      // active state rather than a footnote; the ellipsis is dropped
+      // because at size 2 it would overflow the card past four digits.
+      char why[40];
+      snprintf(why, sizeof(why), "identifying %lus",
+               (unsigned long)g_data.spectrumDurationSec);
+      Cards::leftText(SRC_X + 10, SRC_Y + 52, why, 2, currentTheme->warning);
+    } else {
+      Cards::leftText(SRC_X + 10, SRC_Y + 50, prog, 1, currentTheme->textSecondary);
+    }
     return;
   }
 
@@ -181,9 +244,19 @@ static void updateSourceCard(bool force = false) {
   else if (g_data.sourceClass == SRC_BACKGROUND) color = currentTheme->accent;
   else if (g_data.sourceClass == SRC_INSUFFICIENT) color = currentTheme->textSecondary;
 
-  Cards::leftText(SRC_X + 10, SRC_Y + 28, sourceClassLabel(g_data.sourceClass), 2, color);
-  Cards::leftText(SRC_X + 10, SRC_Y + 50, sourceClassDetail(g_data.sourceClass), 1,
-                  currentTheme->textSecondary);
+  Cards::leftText(SRC_X + 10, SRC_Y + 28,
+                  sourceClassLabelGraded(g_data.sourceClass, g_data.verdictConfidence),
+                  2, color);
+  // The number behind the verdict, so a wobbling result reads as evidence
+  // still accumulating rather than the device changing its mind.
+  char detail[40];
+  if (g_data.verdictConfidence > 0.0f) {
+    snprintf(detail, sizeof(detail), "confidence %.0f%%",
+             g_data.verdictConfidence * 100.0f);
+  } else {
+    snprintf(detail, sizeof(detail), "%s", sourceClassDetail(g_data.sourceClass));
+  }
+  Cards::leftText(SRC_X + 10, SRC_Y + 50, detail, 1, currentTheme->textSecondary);
 
   if (g_data.candidateCount > 0) {
     const IsotopeCandidate& top = g_data.candidates[0];
@@ -227,23 +300,47 @@ static ConnectionState lastButtonConn = (ConnectionState)-1;
 static bool lastReconnecting = false;
 static bool lastResetArmed = false;
 
+// Switching the detector off has its own button. Folding it into
+// CONNECT/DISCONNECT as a double-tap could not work: the first tap already
+// disconnects, so by the time a second arrives the device is disconnected
+// and the tap simply reconnects - a second tap "while connected" never
+// happens. Two taps on PWR instead, same confirm idiom as RESET, because
+// this ends an unattended run and the detector must then be switched back
+// on by hand. Counts are safe either way: they live in the detector and
+// survive being powered down.
+static bool powerArmed = false;
+static unsigned long powerArmedUntil = 0;
+static bool lastPowerArmed = false;
+
 static void updateButton(bool force = false) {
   bool reconnecting = BleSource::reconnectPending();
   bool armed = resetArmed && millis() < resetArmedUntil;
+  bool pwrArmed = powerArmed && millis() < powerArmedUntil;
   if (!force && g_data.connection == lastButtonConn &&
-      reconnecting == lastReconnecting && armed == lastResetArmed) {
+      reconnecting == lastReconnecting && armed == lastResetArmed &&
+      pwrArmed == lastPowerArmed) {
     return;
   }
   lastButtonConn = g_data.connection;
   lastReconnecting = reconnecting;
   lastResetArmed = armed;
+  lastPowerArmed = pwrArmed;
 
   const char* label = "CONNECT";
   uint16_t color = currentTheme->accent;
   if (g_data.connection == CONN_CONNECTING) { label = "CONNECTING..."; color = currentTheme->warning; }
-  else if (g_data.connection == CONN_CONNECTED) { label = "DISCONNECT"; color = currentTheme->danger; }
+  else if (g_data.connection == CONN_CONNECTED) {
+    label = "DISCONNECT";
+    color = currentTheme->danger;
+  }
   else if (reconnecting) { label = "RECONNECTING..."; color = currentTheme->warning; }
   Cards::button(BTN_X, BTN_Y, BTN_W, BTN_H, label, color);
+
+  // Only meaningful while the link is up; dimmed otherwise.
+  bool canPower = (g_data.connection == CONN_CONNECTED);
+  Cards::button(PWR_X, BTN_Y, PWR_W, BTN_H, pwrArmed ? "SURE?" : "PWR",
+                pwrArmed ? currentTheme->danger : currentTheme->card,
+                canPower, pwrArmed);
 
   // Two-tap, because this is the one action that throws away a run.
   Cards::button(RST_X, BTN_Y, RST_W, BTN_H, armed ? "SURE?" : "RESET",
@@ -310,6 +407,19 @@ bool handleTap(int16_t x, int16_t y, bool* settingsPressed) {
       resetArmedUntil = millis() + 5000;
       updateButton(true);
     }
+    return true;
+  }
+
+  if (x >= PWR_X && x <= PWR_X + PWR_W) {
+    if (g_data.connection != CONN_CONNECTED) return true;   // nothing to switch off
+    if (powerArmed && millis() < powerArmedUntil) {
+      powerArmed = false;
+      BleSource::requestPowerOff();
+    } else {
+      powerArmed = true;
+      powerArmedUntil = millis() + 5000;
+    }
+    updateButton(true);
     return true;
   }
 

@@ -17,6 +17,13 @@ namespace BleSource {
 
   void requestDisconnect();
 
+  // Switches the detector itself off, then drops the link. The protocol
+  // exposes a PWR bit in DEVICE_CTRL; this is reverse-engineered and not
+  // documented by the manufacturer, so the UI asks for confirmation before
+  // calling it. The accumulated spectrum is NOT cleared - it lives on the
+  // detector and is still there when it is switched back on.
+  void requestPowerOff();
+
   // Clears the device's accumulating spectrum and restarts the acquisition
   // clock, so a new sample can be measured without disconnecting. No-op
   // while disconnected.

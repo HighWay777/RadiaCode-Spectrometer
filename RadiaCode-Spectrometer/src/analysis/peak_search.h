@@ -27,6 +27,24 @@ void analyzeSpectrum(SpectrometerData& d);
 // it avoids recomputing and keeps the chart consistent with the ID list.
 int findPeaks(const SpectrometerData& d, DetectedPeak* out, int maxPeaks);
 
+// Clears the verdict hysteresis (see classify()). Call whenever the
+// accumulation is discarded, so a new sample cannot inherit the previous
+// one's held verdict.
+void resetVerdictHysteresis();
+
+// Estimated gain-drift correction applied to the energy axis, as a factor
+// on the detector's reported calibration. 1.0 means no correction. The
+// detector reports factory coefficients and a scintillator's gain moves
+// with temperature, so real peaks can sit several percent away from where
+// those coefficients place them - enough to hand one nuclide's line to a
+// neighbouring nuclide.
+float gainCorrection();
+void resetGainCorrection();
+
+// Restores the correction this detector learned previously (see
+// Settings::energyGain). Call once at startup.
+void loadGainCorrection();
+
 const DetectedPeak* lastPeaks();
 int lastPeakCount();
 

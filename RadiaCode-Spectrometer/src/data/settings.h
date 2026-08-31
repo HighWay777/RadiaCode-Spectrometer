@@ -9,7 +9,7 @@
 // Overridable from platformio.ini / build flags so a bench build can pretend
 // to be older and exercise the update path.
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "1.0.4"
+#define FIRMWARE_VERSION "1.0.6"
 #endif
 
 // Small persisted preferences, kept in NVS next to the background reference.
@@ -29,6 +29,16 @@ namespace Settings {
   // Attempt to connect as soon as the board powers up.
   bool connectAtStartup();
   void setConnectAtStartup(bool on);
+
+  // Learned energy-scale correction for THIS detector. Gain drifts with
+  // temperature and the reported factory calibration does not follow it, so
+  // the analyser measures the offset against isolated reference lines. That
+  // is a property of the instrument, not of the sample, so it is retained
+  // rather than re-derived from every short measurement - a four-peak
+  // spectrum contains no reference lines to derive it from, and uranium ore
+  // was being read as thorium on an uncorrected axis.
+  float energyGain();            // 1.0 = reported calibration taken as-is
+  void setEnergyGain(float g);
 
   uint8_t brightness();          // 20..255
   void setBrightness(uint8_t v);

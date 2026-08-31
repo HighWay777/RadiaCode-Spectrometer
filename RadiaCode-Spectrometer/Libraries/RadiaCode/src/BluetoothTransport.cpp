@@ -212,10 +212,20 @@ BluetoothTransport::~BluetoothTransport(void)
         // hardware, which progressively starved the heap until the TLS
         // handshake used by OTA could no longer allocate.
         //
-        // disconnect() is asynchronous, so let its callback run before the
-        // object goes away. BLEDevice::m_pClient is left dangling, which is
-        // safe: it is only ever reassigned by the next createClient().
-        delay(100);
+        // disconnect() is asynchronous, so the object must not go away until
+        // the stack has actually torn the link down. A flat 100 ms wait was
+        // not enough: when the link is already unhealthy - which is exactly
+        // when a teardown happens - the disconnect had not completed, and
+        // deleting the client then left the RadiaCode believing it was still
+        // connected. A peripheral that thinks it has a live link STOPS
+        // ADVERTISING, so no scan could ever find it again and the device
+        // appeared permanently unreachable until it was power-cycled.
+        //
+        // Wait for the disconnection to be real, up to 2 s.
+        // BLEDevice::m_pClient is left dangling, which is safe: it is only
+        // ever reassigned by the next createClient().
+        for (int i = 0; i < 40 && pClient->isConnected(); i++) delay(50);
+        delay(50);   // let the final callback unwind before freeing
         delete pClient;
         _peripheral = nullptr;
     }

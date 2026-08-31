@@ -24,6 +24,7 @@
 #include "ui/screen_settings.h"
 #include "data/settings.h"
 #include "data/updater.h"
+#include "analysis/peak_search.h"
 #include "ui/keyboard.h"
 #include "data/background.h"
 #include "data/sd_storage.h"
@@ -35,6 +36,15 @@
 
 #ifndef RESET_SPECTRUM_ON_BOOT
 #define RESET_SPECTRUM_ON_BOOT 0
+#endif
+
+// Identification regression tests against synthetic spectra. See
+// analysis/analysis_selftest.h - build with -DANALYSIS_SELFTEST=1.
+#ifndef ANALYSIS_SELFTEST
+#define ANALYSIS_SELFTEST 0
+#endif
+#if ANALYSIS_SELFTEST
+#include "analysis/analysis_selftest.h"
 #endif
 
 // QSPI pin mapping for display
@@ -116,7 +126,7 @@ static void drawPageDots() {
 
 // Shown while SD, NVS and the nuclide library initialise, so the boot delay
 // reads as deliberate rather than as a blank screen.
-static const uint16_t SPLASH_MIN_MS = 3200;
+static const uint16_t SPLASH_MIN_MS = 8000;
 
 static void drawSplash() {
   gfx->fillScreen(currentTheme->background);
@@ -126,19 +136,20 @@ static void drawSplash() {
   int16_t tw = Cards::textWidth(title, 5);
   Cards::leftText(240 - tw / 2, 78, title, 5, currentTheme->text);
 
-  int16_t sw = Cards::textWidth(sub, 1);
-  Cards::leftText(240 - sw / 2, 126, sub, 1, currentTheme->accent);
+  int16_t sw = Cards::textWidth(sub, 2);
+  Cards::leftText(240 - sw / 2, 130, sub, 2, currentTheme->accent);
 
-  gfx->fillRect(240 - 90, 142, 180, 2, currentTheme->accent);
+  gfx->fillRect(240 - 110, 152, 220, 2, currentTheme->accent);
 
-  const char* tag = "Live gamma spectrum + isotope ID";
-  int16_t gw = Cards::textWidth(tag, 1);
-  Cards::leftText(240 - gw / 2, 158, tag, 1, currentTheme->textSecondary);
+  // Shortened so it still fits centred at size 2 on a 480 px panel.
+  const char* tag = "Gamma spectrum + isotope ID";
+  int16_t gw = Cards::textWidth(tag, 2);
+  Cards::leftText(240 - gw / 2, 170, tag, 2, currentTheme->textSecondary);
 
   char ver[32];
   snprintf(ver, sizeof(ver), "v%s", FIRMWARE_VERSION);
-  int16_t vw = Cards::textWidth(ver, 1);
-  Cards::leftText(240 - vw / 2, 240, ver, 1, currentTheme->textSecondary);
+  int16_t vw = Cards::textWidth(ver, 2);
+  Cards::leftText(240 - vw / 2, 232, ver, 2, currentTheme->textSecondary);
 }
 
 static void goToScreen(AppScreen target, TransitionType type) {
@@ -215,6 +226,7 @@ void setup() {
   setBrightness(Settings::brightness());
   Background::begin();      // stored reference spectrum, before first analysis
   IsotopeLibrary::begin();  // built-in nuclide table as the baseline
+  loadGainCorrection();     // energy-scale correction learned previously
   SdStorage::begin();       // optional - everything works without a card
 
   // A nuclide library on the card supersedes the built-in table. If it is
@@ -299,6 +311,12 @@ void setup() {
   } else {
     goToScreen(SCR_HOME, TRANSITION_NONE);
   }
+
+#if ANALYSIS_SELFTEST
+  // Before any BLE work, so the tests run against a quiet machine and a
+  // failure is visible at the top of the boot log.
+  AnalysisSelfTest::run();
+#endif
 
   BleSource::begin();          // BLE + analysis worker on core 0
   BleSource::beginAutoStart(); // performed by that task, so setup() never blocks
