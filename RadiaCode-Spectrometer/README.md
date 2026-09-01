@@ -1,213 +1,219 @@
-# ESP32-S3 + JC4827W543 (NV3041A QSPI) + GT911 Touch
+# RadiaCode Spectrometer Display
 
-A fully replicable guide to bring up the JC4827W543 4.3" 480x272 IPS display (NV3041A) via QSPI on ESP32‑S3 with GT911 touch. This README explains exactly what to wire, how to configure PlatformIO, and the precise source patch you must apply to the Arduino_GFX NV3041A driver so partial updates work reliably.
+A standalone touchscreen companion for [RadiaCode](https://www.radiacode.com/)
+gamma spectrometers. An ESP32-S3 board with a 4.3" display connects to the
+detector over Bluetooth LE, analyses the live gamma spectrum on-device, and
+tells you in plain language what it thinks you are looking at — no phone, no
+app, no cloud.
 
-## Hardware wiring
+![Isotope candidates screen](docs/screen-isotopes.jpg)
 
-- Board: ESP32‑S3 DevKitC‑1
-- Display: JC4827W543, NV3041A controller, QSPI (4‑line)
-- Touch: GT911 over I2C
-- Backlight: PWM on GPIO1
+## What it does
 
-QSPI display pins
-- CS  -> GPIO45
-- SCK -> GPIO47
-- IO0 (MOSI) -> GPIO21
-- IO1 (MISO) -> GPIO48
-- IO2 (WP)   -> GPIO40
-- IO3 (HD)   -> GPIO39
-- RST -> GPIO17 (recommended, used for hard reset)
-- BLK -> GPIO1 (driven with LEDC PWM)
+- **Connects over BLE** to RadiaCode-102 / 103 / 103G / 110 and reads the live
+  1024-channel spectrum, dose rate and count rate.
+- **Identifies nuclides on-device** with a classical peak-search and
+  energy-library match, tuned to what a scintillator can actually resolve.
+- **Answers the real question** — "URANIUM ORE", "THORIUM", "BACKGROUND" —
+  rather than only listing daughter nuclides.
+- **Tells you how long to keep measuring.** Peak significance grows as √time,
+  so the device extrapolates from your current statistics and says
+  *"keep measuring ~4m 30s"* instead of leaving you guessing.
+- **Background subtraction** with named references per location, so weak
+  samples can be separated from room radon and building-material K-40.
+- **Keeps measuring through interruptions.** The detector accumulates
+  internally, so a dropped BLE link, a disconnect, or a reboot of the display
+  can all resume the same run. Enable **auto-reconnect** in Settings — it is
+  off by default so a new device never connects to anything unasked.
+- **Logs to microSD** — CSV spectra with calibration coefficients, ready for
+  offline analysis in [Gamma-MCA](https://github.com/OpenGammaProject/Gamma-MCA).
 
-GT911 touch pins
-- SDA -> GPIO8
-- SCL -> GPIO4
-- INT -> GPIO3
-- RST -> GPIO38
+## What it does not do
 
-Panel resolution: 480x272 (landscape by default)
+Being honest about the physics matters more than a longer feature list.
 
-## PlatformIO configuration
+The RadiaCode-110 measures about **8.4% FWHM at 662 keV**. Gamma lines closer
+together than roughly 60–100 keV blur into a single bump. Strong, isolated
+sources (Cs-137, Co-60, Am-241, K-40, and the natural uranium and thorium
+chains) are identifiable. **Weak mixtures are not reliably separable**, and no
+amount of software changes that. Treat the output as *ranked probable
+candidates*, not a laboratory result.
 
-In your new project's `platformio.ini` use:
+Near background level, results depend entirely on having recorded a background
+reference — ambient air genuinely contains radon daughters (real U-238 chain
+members) and walls genuinely contain K-40.
 
-```ini
-[env:esp32-s3-devkitc-1]
-platform = espressif32
-board = esp32-s3-devkitc-1
-framework = arduino
-monitor_speed = 115200
-upload_speed = 460800
+## Hardware
 
-; Make sure PlatformIO sees the patched libraries folder you use
-lib_extra_dirs = Libraries
+| Part | Notes |
+|---|---|
+| **Guition JC4827W543** ESP32-S3 board | 4.3" 480×272 IPS, NV3041A over QSPI, GT911 capacitive touch, 4 MB flash / 8 MB PSRAM. The **capacitive** variant — the resistive one wires its touch controller to the SD card's SPI pins. |
+| **A RadiaCode detector** | 102 / 103 / 103G / 110. Developed and tested against an RC-110. |
+| microSD card | Optional. **Must be FAT32** — Windows formats cards over 32 GB as exFAT, which the ESP32 cannot read. The device can reformat a card for you. |
+| USB-C cable | Power and flashing. |
 
-lib_deps =
-    bblanchon/ArduinoJson @ ^6.21.3
+Nothing needs soldering; the board is used as sold.
 
-build_flags =
-    -D ARDUINO_USB_CDC_ON_BOOT=1
+## Flashing
 
-; Avoid duplicate or unpatched Arduino_GFX copies
-; If you keep only one patched copy in Libraries/, you can skip this.
-; Otherwise, explicitly ignore other names that might resolve:
-; lib_ignore = GFX Library for Arduino, Arduino_GFX
-```
+Built with [PlatformIO](https://platformio.org/).
 
-Important
-- Keep only one copy of Arduino_GFX in your include path, and ensure it contains the patch below. The safest route is to copy this repo’s `Libraries/Arduino_GFX-1.4.4/` into your new project’s `Libraries/` and remove other Arduino_GFX copies from `lib/` or `.pio/libdeps`.
-
-## Mandatory driver patch (NV3041A over QSPI)
-
-Symptom without this patch: only the first line updates or you see flicker/tearing on sub‑rectangle updates. Cause: the address window commands must use contiguous 16‑bit transfers over QSPI for this panel/controller.
-
-Patched file path (use the one your build actually includes):
-- Libraries/Arduino_GFX-1.4.4/src/display/Arduino_NV3041A.cpp
-
-Exact function body required for reliable updates:
-
-```cpp
-void Arduino_NV3041A::writeAddrWindow(int16_t x, int16_t y, uint16_t w, uint16_t h)
-{
-  if ((x != _currentX) || (w != _currentW))
-  {
-    _currentX = x;
-    _currentW = w;
-    x += _xStart;
-    // Use contiguous 16-bit writes for QSPI reliability
-    _bus->writeC8D16D16(NV3041A_CASET, x, x + w - 1);
-  }
-
-  if ((y != _currentY) || (h != _currentH))
-  {
-    _currentY = y;
-    _currentH = h;
-    y += _yStart;
-    // Use contiguous 16-bit writes for QSPI reliability
-    _bus->writeC8D16D16(NV3041A_RASET, y, y + h - 1);
-  }
-
-  _bus->writeCommand(NV3041A_RAMWR); // write to RAM
-}
-```
-
-Notes
-- Some upstream variants used split writes (e.g., `writeC8D16D16Split`). Replace those with the exact `writeC8D16D16` calls shown.
-- Ensure the panel exits sleep and turns on. The stock init table in Arduino_GFX 1.4.4 already issues SLPOUT (0x11) and DISPON (0x29). If your copy does not turn on the panel, add this to `tftInit()` after `invertDisplay(false);`:
-
-```cpp
-  _bus->sendCommand(NV3041A_DISPON);
-  delay(NV3041A_SLPOUT_DELAY);
-```
-
-## Minimal application setup (copyable)
-
-Display and bus construction (QSPI pinout shown above):
-
-```cpp
-#include <Arduino_GFX_Library.h>
-
-static const int8_t PIN_CS  = 45;
-static const int8_t PIN_SCK = 47;
-static const int8_t PIN_D0  = 21; // IO0 (MOSI)
-static const int8_t PIN_D1  = 48; // IO1 (MISO)
-static const int8_t PIN_D2  = 40; // IO2 (WP)
-static const int8_t PIN_D3  = 39; // IO3 (HD)
-static const int8_t PIN_RST = 17; // panel reset
-
-Arduino_DataBus *bus = new Arduino_ESP32QSPI(PIN_CS, PIN_SCK, PIN_D0, PIN_D1, PIN_D2, PIN_D3);
-Arduino_GFX *gfx = new Arduino_NV3041A(bus, PIN_RST /* RST */, 0 /* rotation */, true /* IPS */);
-
-void setup() {
-  Serial.begin(115200);
-  // Optional hard reset pulse before begin
-  pinMode(PIN_RST, OUTPUT);
-  digitalWrite(PIN_RST, HIGH); delay(10);
-  digitalWrite(PIN_RST, LOW);  delay(20);
-  digitalWrite(PIN_RST, HIGH); delay(120);
-
-  // Start at a conservative QSPI clock (16 MHz). Increase to 24–32 MHz if stable.
-  if (!gfx->begin(16000000)) {
-    Serial.println("gfx->begin() failed");
-    for(;;) delay(1000);
-  }
-  gfx->invertDisplay(false);
-  gfx->setRotation(0); // landscape 480x272
-  gfx->fillScreen(BLACK);
-  gfx->setCursor(10, 10);
-  gfx->setTextColor(WHITE);
-  gfx->setTextSize(2);
-  gfx->println("NV3041A QSPI OK");
-}
-
-void loop() {}
-```
-
-Backlight PWM on GPIO1 (LEDC):
-
-```cpp
-#define LCD_BL 1
-#define LEDC_CHANNEL_0     0
-#define LEDC_TIMER_12_BIT  12
-#define LEDC_BASE_FREQ     5000
-
-static void setBrightness(uint8_t value) {
-  uint32_t duty = (1 << LEDC_TIMER_12_BIT) - 1;
-  duty = duty * value / 255;
-  ledcWrite(LEDC_CHANNEL_0, duty);
-}
-
-void setup() {
-  // ...after Serial.begin
-  ledcSetup(LEDC_CHANNEL_0, LEDC_BASE_FREQ, LEDC_TIMER_12_BIT);
-  ledcAttachPin(LCD_BL, LEDC_CHANNEL_0);
-  setBrightness(255);
-  // ...then display begin()
-}
-```
-
-GT911 touch bring‑up (pins above; rotation to match display):
-
-```cpp
-#include "Touch_GT911.h"
-
-static const uint8_t TOUCH_SDA = 8, TOUCH_SCL = 4, TOUCH_INT = 3, TOUCH_RST = 38;
-static const uint16_t SCREEN_WIDTH = 480, SCREEN_HEIGHT = 272;
-Touch_GT911 touch(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, SCREEN_WIDTH, SCREEN_HEIGHT);
-
-static bool i2c_device_present(uint8_t addr) {
-  Wire.beginTransmission(addr);
-  return (Wire.endTransmission() == 0);
-}
-
-void touch_begin() {
-  Wire.begin(TOUCH_SDA, TOUCH_SCL);
-  Wire.setClock(400000);
-  uint8_t addr = i2c_device_present(GT911_ADDR1) ? GT911_ADDR1 : GT911_ADDR2;
-  touch.begin(addr);
-  touch.setRotation(ROTATION_NORMAL); // matches display rotation(0)
-}
-```
-
-## Build, upload, monitor
-
-```powershell
-pio run
+```bash
+git clone https://git.vhelectronics.com/highway/RadiaCode-Spectrometer.git
+cd Radiacode110/RadiaCode-Spectrometer
 pio run -t upload
+```
+
+To watch the diagnostic log:
+
+```bash
 pio device monitor
 ```
 
-## Troubleshooting checklist
+The project uses a **custom partition table** (`partitions.csv`) giving two
+1.9 MB OTA slots instead of the stock 1.31 MB, reclaimed from the unused
+SPIFFS region. Both app slots are required for over-the-air updates.
 
-- Only the top line updates or sub‑rect draws flicker: your NV3041A driver isn’t patched. Apply the exact `writeAddrWindow()` above and ensure the patched Arduino_GFX copy is the one actually compiled. Delete duplicate Arduino_GFX copies from `lib/` and `.pio/libdeps/*` if needed.
-- Random artifacts/tearing: lower QSPI speed in `gfx->begin(...)` to 12–16 MHz; avoid continuous full‑screen redraws.
-- Black screen: verify wiring and that the panel is out of sleep and display is on (SLPOUT/DISPON). If your library doesn’t issue DISPON in the init table, add the two lines shown to `tftInit()`.
-- Touch coordinates flipped: switch `touch.setRotation(...)` among ROTATION_NORMAL/RIGHT/INVERTED/LEFT to match your UI.
+## First run
 
-## What this project includes
+On first power-up the device shows a **setup screen**:
 
-- A patched Arduino_GFX 1.4.4 NV3041A driver in `Libraries/Arduino_GFX-1.4.4/` with contiguous 16‑bit address window writes.
-- Working QSPI pin map and LEDC backlight control.
-- Optional GT911 touch with a tested rotation mapping.
+1. Tap **WiFi network (SSID)** and type it on the on-screen keyboard.
+2. Tap **WiFi password** and enter it.
+3. Tap **DONE**.
 
-Use the code and patch above in any new ESP32‑S3 project with this panel to get a reliable, flicker‑free UI.
+WiFi is optional and only used for firmware updates — the spectrometer works
+fully without it. Credentials are stored in the ESP32's NVS flash and are
+never part of the source or the firmware image.
+
+Setup does not reappear on later boots. It stays reachable as the **last
+screen** in the swipe cycle.
+
+## Using it
+
+Swipe left/right to move between seven screens:
+
+| Screen | Purpose |
+|---|---|
+| **Home** | Dose rate, count rate, sample verdict, device status, connect |
+| **Isotopes** | Ranked candidate nuclides; tap one for its full line list |
+| **Spectrum** | Live chart, log/linear (tap to toggle), marked peaks |
+| **Analysis** | Verdict, confidence in σ, chain evidence, how long to keep measuring |
+| **Background** | Record / enable / manage the background reference |
+| **Data** | SD card status, CSV export, card formatting |
+| **Settings** | WiFi, auto-reconnect, updates, brightness, factory reset |
+
+### Settings and their defaults
+
+| Setting | Default | Notes |
+|---|---|---|
+| Auto-reconnect / resume after reboot | **off** | Resumes an interrupted run. Off out of the box so nothing connects unasked. |
+| Connect to detector at startup | **off** | Links as soon as the board powers up. |
+| Check for firmware updates at startup | **off** | Needs WiFi; the row stays disabled until a network is set. |
+| Display brightness | 78% | Tap to cycle. |
+
+All of these persist in NVS flash until a factory reset.
+
+### A typical measurement
+
+1. **Home → CONNECT.**
+2. Optionally record a background: **Background → START RECORDING** with
+   nothing near the detector, 10–60 minutes, then **STOP & SAVE**.
+3. Place your sample and tap **RESET** on Home to start a fresh run.
+4. Watch **Analysis** — it tells you when the result is statistically solid.
+
+Longer is better, but with diminishing returns: significance grows as √time,
+so quadrupling the time only doubles your confidence.
+
+## Firmware updates
+
+**Settings → Firmware / updates**:
+
+- **CHECK NOW** queries the latest release from this repository.
+- If a newer version exists the row becomes **INSTALL x.y.z**; tapping it
+  downloads and flashes it, then reboots.
+- **Check for firmware updates at startup** does this automatically.
+
+Updates are written to the *inactive* OTA slot — the running firmware is never
+overwritten, so a failed or interrupted download leaves the device working on
+the current version. Requires WiFi.
+
+## Factory reset
+
+**Settings → Factory defaults** (tap twice to confirm) erases WiFi
+credentials, all preferences and the stored background reference, then
+reboots into first-run setup. It does not touch files on the SD card.
+
+## The microSD card
+
+Entirely optional — measurement and identification never depend on it.
+
+| Path | Contents |
+|---|---|
+| `/spectra/` | Exported CSV spectra, plus a 5-minute autosave checkpoint |
+| `/background/` | Named background references (HOME, CAR, BASEMENT…) |
+| `/import/` | Drop RadiaCode `.xml` exports here to import as backgrounds |
+| `/isotopes.csv` | Optional replacement nuclide library |
+
+### Bringing in RadiaCode app backgrounds
+
+Copy XML exports from the official RadiaCode software into `/import`, then
+**Data → BKG LIBRARY → IMPORT XML**. Pick a target slot and tap the file; it
+is converted and activated in one step.
+
+### Extending the nuclide library
+
+On first run with a card the device writes `/isotopes_template.csv` containing
+its built-in table. Rename it to `isotopes.csv`, add nuclides, and reboot —
+up to 300 nuclides. One row per gamma line:
+
+```csv
+symbol,name,category,chain,energy_keV,intensity
+Bi-214,Bismuth-214,natural,U238,609.31,0.4549
+Cs-137,Caesium-137,artificial,none,661.66,0.851
+```
+
+`category` is `natural|artificial|medical|calibration`, `chain` is
+`U238|Th232|none`, and `intensity` is **absolute** emission probability per
+decay (0–1), not relative.
+
+## How identification works
+
+1. Background reference (if any) is subtracted.
+2. The spectrum is smoothed with a resolution-aware window — a peak is ~9
+   channels wide at 100 keV but ~46 at 2614 keV.
+3. A continuum is estimated from side-bands either side of each peak.
+4. Peaks are found on the *net* spectrum and ranked by statistical
+   significance, `net / √(sample + background + continuum)`.
+5. Lines are matched within ±0.6 FWHM, weighted by **detectability**
+   (emission × detector efficiency) rather than raw emission — a small CsI
+   crystal sees Tl-208's 583 keV line far more readily than its 2614 keV one.
+6. Each peak is awarded to the nuclide that best explains it, so one peak
+   cannot confirm several nuclides at once.
+7. Decay-chain members are combined: uranium is identified through Bi-214,
+   Pb-214 and Ra-226, because U-238 itself emits essentially no detectable
+   gammas.
+
+## Safety note
+
+This is a hobbyist instrument, not a certified radiation safety device. Do not
+rely on it for occupational or medical decisions. If you collect radioactive
+minerals, the practical hazards are dust and radon rather than external dose:
+don't grind specimens, wash your hands, and store them ventilated.
+
+## Credits
+
+- [mkgeiger/RadiaCode](https://github.com/mkgeiger/RadiaCode) — Arduino BLE
+  library for RadiaCode devices (MIT), vendored with documented patches.
+- [cdump/radiacode](https://github.com/cdump/radiacode) — the reverse-engineered
+  protocol everything else builds on.
+- [moononournation/Arduino_GFX](https://github.com/moononournation/Arduino_GFX)
+  — display driver, vendored with an NV3041A QSPI fix.
+- Nuclear data follows published NNDC/ENSDF values.
+
+RadiaCode publishes no official API; all BLE integration is community
+reverse-engineering. Not affiliated with or endorsed by RadiaCode.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

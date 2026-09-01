@@ -56,12 +56,28 @@ void statValueArea(int16_t x, int16_t y, int16_t w, int16_t h, const char* value
   }
 }
 
-void button(int16_t x, int16_t y, int16_t w, int16_t h, const char* label, uint16_t fillColor) {
+// Scale an RGB565 colour by num/den, per channel.
+static uint16_t scale565(uint16_t c, uint8_t num, uint8_t den) {
+  uint16_t r = (c >> 11) & 0x1F, g = (c >> 5) & 0x3F, b = c & 0x1F;
+  r = (uint16_t)(r * num / den);
+  g = (uint16_t)(g * num / den);
+  b = (uint16_t)(b * num / den);
+  return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+void button(int16_t x, int16_t y, int16_t w, int16_t h, const char* label,
+            uint16_t fillColor, bool enabled, bool pressed) {
   if (!g_gfx) return;
   const int16_t radius = 10;
-  g_gfx->fillRoundRect(x, y, w, h, radius, fillColor);
-  g_gfx->drawRoundRect(x, y, w, h, radius, textColor());
-  centeredText(x + w / 2, y + h / 2 - 8, label, 2, textColor());
+
+  uint16_t fill = pressed ? scale565(fillColor, 1, 2) : fillColor;
+  g_gfx->fillRoundRect(x, y, w, h, radius, fill);
+
+  uint16_t border = pressed ? highlightColor() : (enabled ? textColor() : cardBorder());
+  g_gfx->drawRoundRect(x, y, w, h, radius, border);
+  if (pressed) g_gfx->drawRoundRect(x + 1, y + 1, w - 2, h - 2, radius - 1, border);
+
+  centeredText(x + w / 2, y + h / 2 - 8, label, 2, enabled ? textColor() : textSecColor());
 }
 
 void progressBar(int16_t x, int16_t y, int16_t w, int16_t h, float fraction, uint16_t color) {

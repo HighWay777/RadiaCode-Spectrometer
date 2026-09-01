@@ -30,6 +30,11 @@
 #define BT_SUPPORT_ENABLED
 #endif
 
+// PATCHED (2026-08-22): lets the application see whether the BLE link is
+// still up without owning the client, so a dropped connection can be detected
+// and auto-reconnected instead of silently returning empty data forever.
+bool radiacodeBleLinkUp(void);
+
 class BluetoothTransport : public RadiaCodeTransport
 {
     public:

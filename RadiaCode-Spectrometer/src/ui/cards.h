@@ -22,7 +22,13 @@ namespace Cards {
   void statValueArea(int16_t x, int16_t y, int16_t w, int16_t h, const char* value, const char* unit, uint16_t valueColor);
 
   // Solid button (e.g. Connect/Disconnect).
-  void button(int16_t x, int16_t y, int16_t w, int16_t h, const char* label, uint16_t fillColor);
+  // `enabled == false` dims the label so an inactive control reads as
+  // inactive; `pressed == true` darkens the fill and thickens the border to
+  // acknowledge a tap. Buttons draw their own feedback rather than relying on
+  // the generic ripple effect, which paints the theme background over
+  // whatever it sits on and leaves a dark blob on a coloured control.
+  void button(int16_t x, int16_t y, int16_t w, int16_t h, const char* label,
+              uint16_t fillColor, bool enabled = true, bool pressed = false);
 
   // Horizontal 0..1 fraction bar (confidence, battery, etc.)
   void progressBar(int16_t x, int16_t y, int16_t w, int16_t h, float fraction, uint16_t color);

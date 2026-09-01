@@ -45,7 +45,7 @@ void requestDisconnect() {
   g_data.batteryPercent = -1;
   g_data.liveTimeSeconds = 0;
   g_data.doseRateUSvH = 0;
-  g_data.cpm = 0;
+  g_data.cps = 0;
   resetSpectrum();
 }
 
@@ -113,9 +113,9 @@ void tick() {
     g_data.doseRateUSvH = baselineUSvH + jitter;
     if (g_data.doseRateUSvH < 0.02f) g_data.doseRateUSvH = 0.02f;
 
-    float baselineCpm = 18.0f + 70.0f * sourceStrength;
-    g_data.cpm = baselineCpm + (float)random(-3, 4);
-    if (g_data.cpm < 0) g_data.cpm = 0;
+    float baselineCps = 28.0f + 120.0f * sourceStrength;
+    g_data.cps = baselineCps + (float)random(-3, 4);
+    if (g_data.cps < 0) g_data.cps = 0;
   }
 
   if (now - lastSpectrumTickMs >= 500) {

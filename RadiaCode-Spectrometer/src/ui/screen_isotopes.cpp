@@ -2,6 +2,7 @@
 #include "cards.h"
 #include "ui_theme.h"
 #include "../data/spectrometer_data.h"
+#include "../data/isotope_library.h"
 #include <Arduino_GFX_Library.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,7 +17,7 @@ static const int16_t COL_X[2] = {8, 244};
 static const int16_t ROW_Y[3] = {30, 110, 190};
 
 // Per-slot cache so a slot is only repainted when its content actually
-// changed — avoids the whole grid visibly flashing every update tick.
+// changed - avoids the whole grid visibly flashing every update tick.
 static char lastSymbol[MAX_CANDIDATES][16];
 static int lastConfidencePct[MAX_CANDIDATES];
 static bool lastHasData[MAX_CANDIDATES];
@@ -66,12 +67,39 @@ static void drawSlot(int index, bool force) {
 
   Cards::leftText(x + 10, y + 46, c.name, 1, currentTheme->textSecondary);
 
-  char energyBuf[16];
-  snprintf(energyBuf, sizeof(energyBuf), "%.0f keV", c.matchedEnergyKeV);
+  // Tag the origin so a lab/medical nuclide can't be mistaken for something
+  // geologically plausible at a glance.
+  const char* tag = "";
+  uint16_t tagColor = currentTheme->textSecondary;
+  for (uint16_t i = 0; i < IsotopeLibrary::count(); i++) {
+    if (strcmp(IsotopeLibrary::at(i).symbol, c.symbol) != 0) continue;
+    switch (IsotopeLibrary::at(i).category) {
+      case CAT_NATURAL:
+        tag = (IsotopeLibrary::at(i).chain == CHAIN_U238)  ? "U chain"
+            : (IsotopeLibrary::at(i).chain == CHAIN_TH232) ? "Th chain" : "natural";
+        tagColor = currentTheme->cool;
+        break;
+      case CAT_ARTIFICIAL:  tag = "artificial"; tagColor = currentTheme->danger; break;
+      case CAT_MEDICAL:     tag = "medical";    tagColor = currentTheme->warning; break;
+      case CAT_CALIBRATION: tag = "lab source"; tagColor = currentTheme->warning; break;
+    }
+    break;
+  }
+
+  char energyBuf[24];
+  snprintf(energyBuf, sizeof(energyBuf), "%.0f keV  %u/%u", c.matchedEnergyKeV,
+           c.linesMatched, c.linesTotal);
   Cards::leftText(x + 10, y + 58, energyBuf, 1, currentTheme->textSecondary);
+
+  int16_t tw = Cards::textWidth(tag, 1);
+  Cards::leftText(x + SLOT_W - 10 - tw, y + 58, tag, 1, tagColor);
 }
 
 static void refreshAll(bool force) {
+  // candidateCount and the candidate array are rebuilt on core 0 by
+  // analyzeSpectrum(); without this a UI tick landing mid-rebuild can render
+  // one nuclide's symbol beside another's confidence.
+  DataGuard guard;
   for (int i = 0; i < MAX_CANDIDATES; i++) drawSlot(i, force);
 }
 

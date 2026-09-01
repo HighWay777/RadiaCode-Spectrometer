@@ -36,7 +36,21 @@
 
 // Define the static buffer for BluetoothTransport
 uint8_t BluetoothTransport::_resp_buffer[BluetoothTransport::MAX_RESP_SIZE];
+
+// PATCHED (2026-08-22): remember the live client so the application can ask
+// whether the link is still up. Only one RadiaCode connection exists at a
+// time, so a single static is sufficient.
+static BLEClient* s_activeClient = nullptr;
 #endif
+
+bool radiacodeBleLinkUp(void)
+{
+#ifdef BT_SUPPORT_ENABLED
+    return (s_activeClient != nullptr) && s_activeClient->isConnected();
+#else
+    return false;
+#endif
+}
 
 BluetoothTransport::BluetoothTransport(const char* mac)
 {
@@ -70,6 +84,7 @@ BluetoothTransport::BluetoothTransport(const char* mac)
     if (connected)
     {
         _peripheral = (void*)pClient;
+        s_activeClient = pClient;
 
         // Get service and characteristics
         BLEUUID serviceUUID("e63215e5-7003-49d8-96b0-b024798fb901");
@@ -187,7 +202,32 @@ BluetoothTransport::~BluetoothTransport(void)
     if (_peripheral != nullptr)
     {
         BLEClient* pClient = (BLEClient*)_peripheral;
+        if (s_activeClient == pClient) s_activeClient = nullptr;
         pClient->disconnect();
+        // PATCHED (2026-08-30): the client was never freed. Arduino-ESP32's
+        // BLEDevice::createClient() is a bare `new BLEClient()`, and neither
+        // this library nor BLEDevice::deinit() ever deletes it - so every
+        // connect leaked the client together with its whole discovered
+        // service/characteristic tree. Measured at ~4 KB per connect cycle on
+        // hardware, which progressively starved the heap until the TLS
+        // handshake used by OTA could no longer allocate.
+        //
+        // disconnect() is asynchronous, so the object must not go away until
+        // the stack has actually torn the link down. A flat 100 ms wait was
+        // not enough: when the link is already unhealthy - which is exactly
+        // when a teardown happens - the disconnect had not completed, and
+        // deleting the client then left the RadiaCode believing it was still
+        // connected. A peripheral that thinks it has a live link STOPS
+        // ADVERTISING, so no scan could ever find it again and the device
+        // appeared permanently unreachable until it was power-cycled.
+        //
+        // Wait for the disconnection to be real, up to 2 s.
+        // BLEDevice::m_pClient is left dangling, which is safe: it is only
+        // ever reassigned by the next createClient().
+        for (int i = 0; i < 40 && pClient->isConnected(); i++) delay(50);
+        delay(50);   // let the final callback unwind before freeing
+        delete pClient;
+        _peripheral = nullptr;
     }
 #endif
 
@@ -205,6 +245,14 @@ BytesBuffer BluetoothTransport::execute(const uint8_t* request, size_t length)
     if (_peripheral == nullptr)
     {
         Serial.println("Bluetooth not connected");
+        return response;
+    }
+
+    // PATCHED (2026-08-22): bail out immediately on a dropped link. Without
+    // this the code below waits the full response timeout for a reply that
+    // can never arrive, freezing the caller's UI on every poll.
+    if (!((BLEClient*)_peripheral)->isConnected())
+    {
         return response;
     }
 
@@ -237,7 +285,10 @@ BytesBuffer BluetoothTransport::execute(const uint8_t* request, size_t length)
 
     // Wait for response with timeout - extended to 30 seconds
     unsigned long startTime = millis();
-    const unsigned long TIMEOUT_MS = 30000; // Increased timeout to 30 seconds
+    // PATCHED (2026-08-22): 30 s was far too long for an interactive device —
+    // one stalled poll froze the whole UI. Every real response arrives in well
+    // under a second; 4 s is generous and keeps a failure recoverable.
+    const unsigned long TIMEOUT_MS = 4000;
     unsigned long elapsedTime = 0;
 
     while ((!_response_ready) && ((elapsedTime = (millis() - startTime)) < TIMEOUT_MS))
