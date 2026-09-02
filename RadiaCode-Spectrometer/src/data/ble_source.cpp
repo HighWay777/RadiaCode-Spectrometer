@@ -1,5 +1,6 @@
 #include "ble_source.h"
 #include "spectrometer_data.h"
+#include "spectrum_window.h"
 #include "settings.h"
 #include "../analysis/peak_search.h"
 #include <BluetoothTransport.h>
@@ -301,9 +302,18 @@ static void doPowerOff() {
   g_data.cps = 0;
 }
 
+// Scratch copy holding the windowed spectrum the analyser works on. File
+// scope rather than stack: this runs on the BLE task, whose stack is 12 KB
+// and a SpectrometerData carries a 4 KB spectrum.
+static SpectrometerData s_analysis;
+
 static bool doReset() {
   if (g_data.connection != CONN_CONNECTED || device == nullptr) return false;
   device->spectrumReset();
+  // The UI reads these from the other core; doReset() previously ran outside
+  // the lock while memset-ing the spectrum ScreenSpectrum::rebin() was
+  // walking.
+  DataGuard guard;
   memset(g_data.spectrum, 0, sizeof(g_data.spectrum));
   g_data.spectrumDurationSec = 0;
   g_data.candidateCount = 0;
@@ -311,7 +321,9 @@ static bool doReset() {
   g_data.uranium = {0.0f, 0, 0};
   g_data.thorium = {0.0f, 0, 0};
   g_data.quality = {0, 0.0f, 0.0f, QUAL_POOR, 0, 0, 0};
+  g_data.verdictConfidence = 0.0f;
   resetVerdictHysteresis();   // a new sample starts with no held verdict
+  SpectrumWindow::rebase(g_data);
   // The energy-gain correction is deliberately NOT reset: it describes the
   // detector, not the sample, and re-deriving it from a fresh short
   // acquisition is exactly what fails.
@@ -400,10 +412,36 @@ static void pollSpectrum() {
       g_data.calibA2 = spec.a2;
     }
 
-    analyzeSpectrum(g_data);
+    // Take the analysis snapshot while still holding the lock.
+    SpectrumWindow::update(g_data);
+    SpectrumWindow::view(g_data, s_analysis);
   } catch (...) {
     Serial.println("[BLE] Error reading spectrum");
+    return;
   }
+
+  // --- analysis runs OUTSIDE the lock ---------------------------------------
+  //
+  // The fit is 60 EM iterations over ~39 templates x 1024 channels: one to
+  // three seconds. Running it inside the guard above held the mutex for that
+  // whole time, and every draw and touch handler on core 1 blocked behind it -
+  // the display lagged badly and a swipe had to be repeated several times
+  // before one registered. s_analysis is private to this task, so the
+  // analysis never needed the lock at all.
+  analyzeSpectrum(s_analysis);
+
+  // Re-acquire only to publish. Short and bounded: a few scalars and at most
+  // MAX_CANDIDATES structs.
+  DataGuard guard;
+  g_data.candidateCount = s_analysis.candidateCount;
+  for (uint8_t i = 0; i < s_analysis.candidateCount; i++) {
+    g_data.candidates[i] = s_analysis.candidates[i];
+  }
+  g_data.sourceClass = s_analysis.sourceClass;
+  g_data.verdictConfidence = s_analysis.verdictConfidence;
+  g_data.uranium = s_analysis.uranium;
+  g_data.thorium = s_analysis.thorium;
+  g_data.quality = s_analysis.quality;
 }
 
 static void tickInternal() {

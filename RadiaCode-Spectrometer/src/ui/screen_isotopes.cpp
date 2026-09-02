@@ -96,6 +96,10 @@ static void drawSlot(int index, bool force) {
 }
 
 static void refreshAll(bool force) {
+  // candidateCount and the candidate array are rebuilt on core 0 by
+  // analyzeSpectrum(); without this a UI tick landing mid-rebuild can render
+  // one nuclide's symbol beside another's confidence.
+  DataGuard guard;
   for (int i = 0; i < MAX_CANDIDATES; i++) drawSlot(i, force);
 }
 

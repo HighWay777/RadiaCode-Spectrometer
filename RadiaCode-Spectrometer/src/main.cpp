@@ -26,6 +26,7 @@
 #include "data/updater.h"
 #include "analysis/peak_search.h"
 #include "ui/keyboard.h"
+#include "analysis/ambient.h"
 #include "data/background.h"
 #include "data/sd_storage.h"
 #include "data/isotope_library.h"
@@ -225,6 +226,7 @@ void setup() {
   Settings::begin();
   setBrightness(Settings::brightness());
   Background::begin();      // stored reference spectrum, before first analysis
+  Ambient::begin();         // learned ambient chain levels for this room
   IsotopeLibrary::begin();  // built-in nuclide table as the baseline
   loadGainCorrection();     // energy-scale correction learned previously
   SdStorage::begin();       // optional - everything works without a card

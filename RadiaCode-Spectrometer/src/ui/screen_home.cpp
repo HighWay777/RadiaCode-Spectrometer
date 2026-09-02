@@ -1,8 +1,10 @@
 #include "screen_home.h"
+#include "../analysis/identify.h"
 #include "cards.h"
 #include "ui_theme.h"
 #include "../data/spectrometer_data.h"
 #include "../data/ble_source.h"
+#include "../data/updater.h"
 #include <Arduino_GFX_Library.h>
 #include <stdio.h>
 #include <string.h>
@@ -107,15 +109,24 @@ static void drawHeader() {
 // redraw entirely when the new value would look identical.
 
 static ConnectionState lastHeaderConn = (ConnectionState)-1;
+static bool lastHeaderUpdating = false;
 
 static void updateHeaderStatus(bool force = false) {
-  if (!force && g_data.connection == lastHeaderConn) return;
+  // WiFi and BLE cannot both hold their buffers on this chip, so an update
+  // check deliberately drops the detector link for a few seconds. Without
+  // saying so the header just reads OFFLINE/CONNECTING about half a minute
+  // after switching on, which looks exactly like a fault - reported as
+  // "the connection drops after 20-30 s, then comes back".
+  bool updating = Updater::busy();
+  if (!force && g_data.connection == lastHeaderConn && updating == lastHeaderUpdating) return;
   lastHeaderConn = g_data.connection;
+  lastHeaderUpdating = updating;
 
   gfx->fillRect(300, 0, 180, HEADER_H, currentTheme->header);
   const char* label = "OFFLINE";
   uint16_t dotColor = currentTheme->textSecondary;
-  if (g_data.connection == CONN_CONNECTING) { label = "CONNECTING"; dotColor = currentTheme->warning; }
+  if (updating) { label = "UPDATE CHECK"; dotColor = currentTheme->warning; }
+  else if (g_data.connection == CONN_CONNECTING) { label = "CONNECTING"; dotColor = currentTheme->warning; }
   else if (g_data.connection == CONN_CONNECTED) { label = "CONNECTED"; dotColor = currentTheme->accent; }
 
   int16_t tw = Cards::textWidth(label, 1);
@@ -192,6 +203,18 @@ static void updateSourceCard(bool force = false) {
     // accumulated spectrum still lives on the detector, so this is a paused
     // run rather than a lost one.
     if (g_data.connection != CONN_CONNECTED) {
+      // Distinguish a deliberate suspension from a lost link. During an
+      // update check the radio is handed to WiFi on purpose and the detector
+      // keeps counting throughout, so "reconnect to resume" would be both
+      // alarming and wrong.
+      if (Updater::busy()) {
+        Cards::leftText(SRC_X + 10, SRC_Y + 28, "UPDATE CHECK", 2,
+                        currentTheme->warning);
+        Cards::leftText(SRC_X + 10, SRC_Y + 50,
+                        "detector still counting - link returns shortly",
+                        1, currentTheme->textSecondary);
+        return;
+      }
       Cards::leftText(SRC_X + 10, SRC_Y + 28, "NOT CONNECTED", 2,
                       currentTheme->textSecondary);
       Cards::leftText(SRC_X + 10, SRC_Y + 50,
@@ -207,7 +230,13 @@ static void updateSourceCard(bool force = false) {
     // Distinguish "nothing here yet" from "something is here, working out
     // what". At 0.33 uSv/h with a source present the second is the truth,
     // and the user should not have to guess which one they are looking at.
-    bool above = g_data.doseRateUSvH >= 0.20f || g_data.cps >= 35.0f;
+    // Ask the analyser rather than re-deriving it here. This line used to
+    // hardcode 0.20 uSv/h and 35 cps, duplicating peak_search.cpp's macros
+    // AND omitting its backgroundApplied() case - so with a stored reference
+    // active the analysis treated the sample as elevated while this card
+    // still read "MEASURING...", which is exactly the weak-source case the
+    // reference exists to serve.
+    bool above = sampleIsElevated(g_data);
     Cards::leftText(SRC_X + 10, SRC_Y + 28,
                     above ? "SOURCE FOUND" : "MEASURING...", 2,
                     above ? currentTheme->highlight : currentTheme->warning);
@@ -349,6 +378,9 @@ static void updateButton(bool force = false) {
 }
 
 void draw() {
+  // candidates, the chain structs and quality are rebuilt on core 0 by
+  // analyzeSpectrum(); reading them unguarded can tear a multi-field read.
+  DataGuard guard;
   gfx->fillScreen(currentTheme->background);
   drawHeader();
   updateHeaderStatus(/* force */ true);
@@ -369,6 +401,9 @@ void draw() {
 }
 
 void update() {
+  // candidates, the chain structs and quality are rebuilt on core 0 by
+  // analyzeSpectrum(); reading them unguarded can tear a multi-field read.
+  DataGuard guard;
   // The model name only becomes known once the device identifies itself, so
   // repaint the title when it changes.
   static char lastModel[20] = "";

@@ -53,10 +53,25 @@ static void drawRow(int i, const char* label, const char* value,
 static void drawAll(int pressed = -1) {
   bool setupMode = !Settings::setupDone();
 
-  // WiFi
+  // WiFi. Entering credentials proves nothing on its own, so the row reports
+  // whether the network actually came up, and shows the address once it has.
   const char* ssid = Settings::wifiSsid();
-  drawRow(R_SSID, "WiFi network (SSID)", ssid[0] ? ssid : "not set",
-          ssid[0] ? currentTheme->accent : currentTheme->textSecondary, pressed == R_SSID);
+  char netVal[40];
+  uint16_t netCol;
+  if (!ssid[0]) {
+    snprintf(netVal, sizeof(netVal), "not set");
+    netCol = currentTheme->textSecondary;
+  } else if (Updater::wifiConnected()) {
+    snprintf(netVal, sizeof(netVal), "%s  %s", ssid, Updater::wifiIp());
+    netCol = currentTheme->accent;
+  } else if (Updater::state() == Updater::WIFI_CONNECTING) {
+    snprintf(netVal, sizeof(netVal), "%s  connecting...", ssid);
+    netCol = currentTheme->warning;
+  } else {
+    snprintf(netVal, sizeof(netVal), "%s  (tap to test)", ssid);
+    netCol = currentTheme->textSecondary;
+  }
+  drawRow(R_SSID, "WiFi network (SSID)", netVal, netCol, pressed == R_SSID);
 
   char masked[24] = "not set";
   if (Settings::wifiPassword()[0]) {
@@ -207,6 +222,14 @@ bool handleTap(int16_t x, int16_t y, bool* backPressed) {
 
     switch (i) {
       case R_SSID:
+        // Once an SSID exists, tapping tests it rather than immediately
+        // reopening the keyboard — "did my credentials work?" is the more
+        // common question. Clearing the field reopens the editor.
+        if (Settings::wifiSsid()[0] && !Updater::wifiConnected() && !Updater::busy()) {
+          Updater::connectWifi();
+          setStatus("Testing WiFi connection...");
+          break;
+        }
         editingRow = i;
         Keyboard::open("WiFi network name", Settings::wifiSsid(), false, 32);
         return true;
