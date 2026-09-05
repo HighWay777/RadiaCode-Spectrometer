@@ -26,6 +26,7 @@
 #include "data/updater.h"
 #include "analysis/peak_search.h"
 #include "ui/keyboard.h"
+#include "analysis/ambient.h"
 #include "data/background.h"
 #include "data/sd_storage.h"
 #include "data/isotope_library.h"
@@ -225,6 +226,7 @@ void setup() {
   Settings::begin();
   setBrightness(Settings::brightness());
   Background::begin();      // stored reference spectrum, before first analysis
+  Ambient::begin();         // learned ambient chain levels for this room
   IsotopeLibrary::begin();  // built-in nuclide table as the baseline
   loadGainCorrection();     // energy-scale correction learned previously
   SdStorage::begin();       // optional - everything works without a card
@@ -318,6 +320,13 @@ void setup() {
   AnalysisSelfTest::run();
 #endif
 
+  // Before BleSource::begin(), deliberately. If an automatic update check is
+  // due, Updater::begin() suspends BLE up front so the check happens while
+  // nothing is connected. Started after the BLE task, it could only ever
+  // interrupt a link that had already come up - which is what made the device
+  // drop and re-scan ~40 s after every power-on.
+  Updater::begin();            // own task; checks at boot only if enabled
+
   BleSource::begin();          // BLE + analysis worker on core 0
   BleSource::beginAutoStart(); // performed by that task, so setup() never blocks
 
@@ -329,7 +338,6 @@ void setup() {
   Serial.println("[BOOT] RESET_SPECTRUM_ON_BOOT - clearing accumulated spectrum");
   BleSource::resetSpectrum();
 #endif
-  Updater::begin();            // own task; checks at boot only if enabled
 }
 
 void loop() {

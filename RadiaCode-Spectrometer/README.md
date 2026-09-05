@@ -60,7 +60,7 @@ Built with [PlatformIO](https://platformio.org/).
 
 ```bash
 git clone https://git.vhelectronics.com/highway/RadiaCode-Spectrometer.git
-cd RadiaCode-Spectrometer/RadiaCode-Spectrometer
+cd Radiacode110/RadiaCode-Spectrometer
 pio run -t upload
 ```
 

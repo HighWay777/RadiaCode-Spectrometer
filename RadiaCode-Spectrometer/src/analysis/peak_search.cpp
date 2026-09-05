@@ -1,4 +1,5 @@
 #include "peak_search.h"
+#include "identify.h"
 #include "../data/isotope_library.h"
 #include "../data/background.h"
 #include "../data/settings.h"
@@ -10,6 +11,12 @@
 // known sample - set to 0 to silence.
 #ifndef PEAK_SEARCH_DEBUG
 #define PEAK_SEARCH_DEBUG 0
+#endif
+
+// Identification via full-spectrum template fitting. 0 restores the original
+// peak-search-and-gate path, which is kept below for comparison.
+#ifndef USE_TEMPLATE_FIT
+#define USE_TEMPLATE_FIT 1
 #endif
 
 #if PEAK_SEARCH_DEBUG
@@ -1258,6 +1265,7 @@ static bool heldUranium = false;
 static bool heldThorium = false;
 
 void resetVerdictHysteresis() {
+  Identify::reset();
   heldUranium = false;
   heldThorium = false;
   chainHeld[0] = chainHeld[1] = chainHeld[2] = false;
@@ -1414,6 +1422,20 @@ void analyzeSpectrum(SpectrometerData& d) {
   // findPeaks() leaves smoothed/continuum/net populated for d, which the ROI
   // tests inside scoreIsotopes() rely on - keep this ordering.
   g_lastPeakCount = findPeaks(d, g_lastPeaks, MAX_DETECTED_PEAKS);
+
+#if USE_TEMPLATE_FIT
+  // Identification is done by fitting the whole spectrum (analysis/fit.cpp)
+  // rather than by picking peaks and scoring them against gates. The peak
+  // list above is still produced, but only so the spectrum chart can mark
+  // what is there - it no longer decides anything.
+  //
+  // Set USE_TEMPLATE_FIT to 0 to fall back to the old path for comparison;
+  // everything below this block is that old path, kept until the fit has
+  // been proven on hardware.
+  if (Identify::run(d)) return;
+  // Fit unavailable (no memory for the template matrix): fall through to the
+  // old path rather than showing nothing.
+#endif
 
   // Align the energy axis with the library before anything is matched.
   // DISABLED. The consensus estimator never once produced a correct value on

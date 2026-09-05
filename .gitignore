@@ -1,30 +1,46 @@
-# PlatformIO build output and caches — regenerable
+# build output and caches - rebuildable, and permanent once committed
 .pio/
 .pioenvs/
 .piolibdeps/
-.cache/
-compile_commands.json
-build_output.txt
+build/
+dist/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+node_modules/
 
-# Editor / IDE state
+# local editor state
 .vscode/.browse*
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch/
-.clangd
 *.code-workspace
 
-# Build artefacts
+# large/derived artefacts
+*.sqlite3
+*.db-journal
 *.o
 *.elf
 *.map
-*.bin
 
-# Nothing secret belongs in this repository. WiFi credentials are entered on
-# the device and stored in its NVS flash, never compiled in — but keep these
-# patterns as a guard against a stray local file being committed.
-*credentials*.h
-*secret*
+# secrets must never enter history - use environment variables
 .env
 *.pem
 *.key
+credentials.json
+
+# The generic display/touch bring-up base this firmware was seeded from is a
+# separate concern and now lives outside the project, at
+# ../ESP32-S3-Touch-base. It is reference material, not part of this build,
+# and it carries an archive of the unrelated project it came from - including
+# credential files. Keep it out of this repo.
+ESP32-S3-Touch/
+
+# Local editor state - machine-specific paths, no value to anyone else.
+.vscode/
+
+# clangd index config - local editor state.
+.clangd

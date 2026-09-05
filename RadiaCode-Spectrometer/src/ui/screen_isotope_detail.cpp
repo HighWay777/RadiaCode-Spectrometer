@@ -1,4 +1,5 @@
 #include "screen_isotope_detail.h"
+#include "../analysis/peak_search.h"   // fwhmKeVAt()
 #include "cards.h"
 #include "ui_theme.h"
 #include "../data/spectrometer_data.h"
@@ -19,6 +20,9 @@ static IsotopeCandidate snapshot;
 static bool hasSnapshot = false;
 
 void setCandidateIndex(int index) {
+  // The candidate array is rebuilt on core 0; copying a whole struct out of
+  // it unguarded can mix two nuclides' fields into one snapshot.
+  DataGuard guard;
   hasSnapshot = false;
   if (index >= 0 && index < g_data.candidateCount) {
     snapshot = g_data.candidates[index];
@@ -86,7 +90,11 @@ void draw() {
   if (def != nullptr) {
     for (uint8_t i = 0; i < def->lineCount; i++) {
       const IsotopeLine& line = def->lines[i];
-      bool isMatched = fabsf(line.energyKeV - snapshot.matchedEnergyKeV) < 5.0f;
+      // Scale with the detector resolution, as the matcher does. A fixed
+      // 5 keV window disagreed with the analysis at both ends of the range -
+      // the real tolerance is ~10 keV at 60 keV and ~64 keV at 2614 keV.
+      float tol = fwhmKeVAt(line.energyKeV) * 0.6f;
+      bool isMatched = fabsf(line.energyKeV - snapshot.matchedEnergyKeV) < tol;
       char lineBuf[32];
       snprintf(lineBuf, sizeof(lineBuf), "%.1f keV  (%.1f%%)", line.energyKeV, line.intensity * 100.0f);
       Cards::leftText(lx, ly, lineBuf, 1, isMatched ? currentTheme->highlight : currentTheme->text);

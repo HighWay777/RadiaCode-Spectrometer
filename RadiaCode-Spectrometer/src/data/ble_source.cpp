@@ -1,6 +1,8 @@
 #include "ble_source.h"
 #include "spectrometer_data.h"
+#include "spectrum_window.h"
 #include "settings.h"
+#include "updater.h"
 #include "../analysis/peak_search.h"
 #include <BluetoothTransport.h>
 
@@ -43,6 +45,11 @@ static unsigned long nextRetryMs = 0;
 static int reconnectAttempts = 0;
 static const unsigned long RETRY_BASE_MS = 4000;
 static const unsigned long RETRY_MAX_MS = 30000;
+
+// Longest a WiFi job may hold the radio before the BLE task takes it back.
+// Generous: a check is a 20 s WiFi association plus an HTTPS round trip.
+// Only applies while the updater is not busy, so a download is never cut off.
+static const unsigned long SUSPEND_WATCHDOG_MS = 120000UL;
 
 static const uint32_t SCAN_SECONDS = 5;
 static const unsigned long REALTIME_POLL_MS = 1000;
@@ -202,8 +209,12 @@ static volatile bool suspended = false;
 // fixed delay, or WiFi starts while a transfer is still in flight.
 static volatile bool suspendAcked = false;
 
+// When the current suspension began, for the watchdog in the task below.
+static volatile unsigned long suspendedAtMs = 0;
+
 void suspendForWifi() {
   if (suspended) return;
+  suspendedAtMs = millis();
   // userWantsConnection is deliberately left alone. It is the record of
   // what the user asked for, and a suspension is not a decision about
   // that - an intent raised while WiFi holds the radio (connect-at-boot,
@@ -301,9 +312,18 @@ static void doPowerOff() {
   g_data.cps = 0;
 }
 
+// Scratch copy holding the windowed spectrum the analyser works on. File
+// scope rather than stack: this runs on the BLE task, whose stack is 12 KB
+// and a SpectrometerData carries a 4 KB spectrum.
+static SpectrometerData s_analysis;
+
 static bool doReset() {
   if (g_data.connection != CONN_CONNECTED || device == nullptr) return false;
   device->spectrumReset();
+  // The UI reads these from the other core; doReset() previously ran outside
+  // the lock while memset-ing the spectrum ScreenSpectrum::rebin() was
+  // walking.
+  DataGuard guard;
   memset(g_data.spectrum, 0, sizeof(g_data.spectrum));
   g_data.spectrumDurationSec = 0;
   g_data.candidateCount = 0;
@@ -311,7 +331,9 @@ static bool doReset() {
   g_data.uranium = {0.0f, 0, 0};
   g_data.thorium = {0.0f, 0, 0};
   g_data.quality = {0, 0.0f, 0.0f, QUAL_POOR, 0, 0, 0};
+  g_data.verdictConfidence = 0.0f;
   resetVerdictHysteresis();   // a new sample starts with no held verdict
+  SpectrumWindow::rebase(g_data);
   // The energy-gain correction is deliberately NOT reset: it describes the
   // detector, not the sample, and re-deriving it from a fresh short
   // acquisition is exactly what fails.
@@ -400,10 +422,36 @@ static void pollSpectrum() {
       g_data.calibA2 = spec.a2;
     }
 
-    analyzeSpectrum(g_data);
+    // Take the analysis snapshot while still holding the lock.
+    SpectrumWindow::update(g_data);
+    SpectrumWindow::view(g_data, s_analysis);
   } catch (...) {
     Serial.println("[BLE] Error reading spectrum");
+    return;
   }
+
+  // --- analysis runs OUTSIDE the lock ---------------------------------------
+  //
+  // The fit is 60 EM iterations over ~39 templates x 1024 channels: one to
+  // three seconds. Running it inside the guard above held the mutex for that
+  // whole time, and every draw and touch handler on core 1 blocked behind it -
+  // the display lagged badly and a swipe had to be repeated several times
+  // before one registered. s_analysis is private to this task, so the
+  // analysis never needed the lock at all.
+  analyzeSpectrum(s_analysis);
+
+  // Re-acquire only to publish. Short and bounded: a few scalars and at most
+  // MAX_CANDIDATES structs.
+  DataGuard guard;
+  g_data.candidateCount = s_analysis.candidateCount;
+  for (uint8_t i = 0; i < s_analysis.candidateCount; i++) {
+    g_data.candidates[i] = s_analysis.candidates[i];
+  }
+  g_data.sourceClass = s_analysis.sourceClass;
+  g_data.verdictConfidence = s_analysis.verdictConfidence;
+  g_data.uranium = s_analysis.uranium;
+  g_data.thorium = s_analysis.thorium;
+  g_data.quality = s_analysis.quality;
 }
 
 static void tickInternal() {
@@ -491,6 +539,24 @@ static void bleTask(void*) {
         Serial.printf("[BLE] Stack down for WiFi - detector keeps counting (heap %u)\n", (unsigned)ESP.getFreeHeap());
       }
       suspendAcked = true;           // safe for WiFi to start now
+
+      // Watchdog. Suspension is now also raised at boot, before any WiFi work
+      // has started, so a failure to reach releaseWifi() - a stalled request,
+      // a job that never runs - would leave the detector disconnected forever
+      // with nothing on screen explaining why. Being unable to measure is a
+      // far worse outcome than a missed update check, so time it out.
+      // Updater::busy() covers the legitimate long case: a firmware download
+      // takes minutes and must not be interrupted here.
+      if (suspendedAtMs != 0 && millis() - suspendedAtMs > SUSPEND_WATCHDOG_MS &&
+          !Updater::busy()) {
+        Serial.println("[BLE] WiFi held the radio too long - taking it back");
+        suspended = false;
+        suspendAcked = false;
+        suspendedAtMs = 0;
+        nextRetryMs = 0;
+        reconnectAttempts = 0;
+        continue;
+      }
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
     }

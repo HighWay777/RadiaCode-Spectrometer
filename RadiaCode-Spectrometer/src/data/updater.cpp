@@ -34,10 +34,18 @@ static volatile bool s_reqCheck = false;
 static volatile bool s_reqInstall = false;
 static volatile bool s_reqWifi = false;
 static volatile bool s_reqRelease = false;
-// Startup update check is deferred until after the detector has had time to
-// connect; 0 means none pending.
+// Startup update check. It runs BEFORE the detector is allowed to connect,
+// not after: WiFi and BLE cannot both hold their buffers on this board, so a
+// check always costs a BLE teardown and reconnect. Firing it at boot+45s put
+// that cost on top of an established link, and the device visibly dropped and
+// re-scanned about half a minute after every power-up - reported from the
+// field twice as "it reconnects itself". Doing it first means there is no
+// link to evict, and the user sees one connect instead of two.
+//
+// The delay only has to be long enough for the BLE task to exist and
+// acknowledge the suspension it was handed in begin(). 0 means none pending.
 static unsigned long s_startupCheckAtMs = 0;
-#define STARTUP_CHECK_DELAY_MS 45000UL
+#define STARTUP_CHECK_DELAY_MS 1500UL
 static bool s_started = false;
 static char s_ip[20] = "";
 
@@ -436,10 +444,13 @@ void begin() {
   // and keeps core 0 free for BLE.
   xTaskCreatePinnedToCore(updaterTask, "ota", 10240, nullptr, 1, nullptr, 1);
   if (Settings::autoUpdate() && Settings::hasWifi()) {
-    // Deferred, so the detector connects first. Firing this at boot put the
-    // update check and the BLE connect on top of each other every single
-    // time, and they cannot share the radio memory.
-    Serial.println("[OTA] Auto-update enabled, checking once the link is up");
+    // Claim the radio now, before BleSource::begin() lets the task start
+    // scanning. suspendForWifi() only sets flags, so it is safe to call
+    // before that task exists - it acknowledges on its first iteration,
+    // having nothing to tear down. The check then runs against a quiet
+    // machine and the detector connects once, afterwards.
+    Serial.println("[OTA] Auto-update enabled, checking before the detector connects");
+    BleSource::suspendForWifi();
     s_startupCheckAtMs = millis() + STARTUP_CHECK_DELAY_MS;
   }
 

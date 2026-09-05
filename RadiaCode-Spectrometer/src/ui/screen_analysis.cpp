@@ -63,10 +63,17 @@ static void drawHeader() {
 
 // --- verdict -------------------------------------------------------------
 static SourceClass lastClass = (SourceClass)-1;
+// The label is graded by confidence, so confidence has to be part of the
+// cache key. Without it the "?" suffix stuck permanently: the class stayed
+// SRC_URANIUM while confidence climbed through the 0.80 cut and nothing
+// repainted.
+static int lastVerdictConfBand = -1;
 
 static void updateVerdict(bool force) {
-  if (!force && g_data.sourceClass == lastClass) return;
+  int band = (int)(g_data.verdictConfidence * 20.0f);
+  if (!force && g_data.sourceClass == lastClass && band == lastVerdictConfBand) return;
   lastClass = g_data.sourceClass;
+  lastVerdictConfBand = band;
 
   gfx->fillRect(VERD_X + 4, VERD_Y + 20, VERD_W - 8, VERD_H - 24, currentTheme->card);
   Cards::leftText(VERD_X + 12, VERD_Y + 22, sourceClassLabelGraded(g_data.sourceClass, g_data.verdictConfidence), 3,
@@ -143,15 +150,22 @@ static void updateEvidence(bool force) {
 // --- acquisition advice --------------------------------------------------
 static uint32_t lastRemaining = 0xFFFFFFFF;
 static uint32_t lastElapsedMin = 0xFFFFFFFF;
+static ConnectionState lastConn = (ConnectionState)-1;
 
 static void updateTimeAdvice(bool force) {
   // Only repaint when the advice actually changes materially — otherwise a
   // once-per-second countdown would repaint this card constantly.
   uint32_t remainingBucket = g_data.quality.remainingSeconds / 5;
   uint32_t elapsedBucket = g_data.spectrumDurationSec / 5;
-  if (!force && remainingBucket == lastRemaining && elapsedBucket == lastElapsedMin) return;
+  // Connection state is rendered by this card too. On a disconnect both
+  // buckets stop changing, so without it here the card froze mid-measurement
+  // and kept advising "keep measuring" against a dead link.
+  ConnectionState conn = g_data.connection;
+  if (!force && remainingBucket == lastRemaining && elapsedBucket == lastElapsedMin &&
+      conn == lastConn) return;
   lastRemaining = remainingBucket;
   lastElapsedMin = elapsedBucket;
+  lastConn = conn;
 
   gfx->fillRect(TIME_X + 4, TIME_Y + 20, TIME_W - 8, TIME_H - 24, currentTheme->card);
 
@@ -192,6 +206,9 @@ static void updateTimeAdvice(bool force) {
 }
 
 void draw() {
+  // candidates, the chain structs and quality are rebuilt on core 0 by
+  // analyzeSpectrum(); reading them unguarded can tear a multi-field read.
+  DataGuard guard;
   gfx->fillScreen(currentTheme->background);
   drawHeader();
   Cards::frame(VERD_X, VERD_Y, VERD_W, VERD_H, "SAMPLE VERDICT");
@@ -205,6 +222,9 @@ void draw() {
 }
 
 void update() {
+  // candidates, the chain structs and quality are rebuilt on core 0 by
+  // analyzeSpectrum(); reading them unguarded can tear a multi-field read.
+  DataGuard guard;
   updateVerdict(false);
   updateQuality(false);
   updateEvidence(false);
