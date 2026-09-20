@@ -143,6 +143,13 @@ void observe(DecayChain c, float frac, uint32_t windowSeconds,
   } else if (!identified) {
     l->frac += (frac - l->frac) * ADAPT_UP;
     l->learned = true;
+  } else if (frac <= (c == CHAIN_U238 ? 0.020f : 0.030f)) {
+    // Prevent outdoor-to-indoor lockup: if the detector adapted down in clean
+    // outdoor air and moves indoors, normal room radon (1.0-1.8%) can trigger
+    // an elevation verdict. Allow very gentle upward tracking within the safe
+    // ambient ceiling so the room's true baseline is eventually learned.
+    l->frac += (frac - l->frac) * (ADAPT_UP * 0.25f);
+    l->learned = true;
   }
 
   if (fabsf(s_u.frac - s_savedU) > SAVE_DELTA ||

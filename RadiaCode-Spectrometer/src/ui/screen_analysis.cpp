@@ -155,8 +155,9 @@ static ConnectionState lastConn = (ConnectionState)-1;
 static void updateTimeAdvice(bool force) {
   // Only repaint when the advice actually changes materially — otherwise a
   // once-per-second countdown would repaint this card constantly.
+  uint32_t elapsedSec = g_data.isWindowed ? g_data.windowDurationSec : g_data.spectrumDurationSec;
   uint32_t remainingBucket = g_data.quality.remainingSeconds / 5;
-  uint32_t elapsedBucket = g_data.spectrumDurationSec / 5;
+  uint32_t elapsedBucket = elapsedSec / 5;
   // Connection state is rendered by this card too. On a disconnect both
   // buckets stop changing, so without it here the card froze mid-measurement
   // and kept advising "keep measuring" against a dead link.
@@ -170,7 +171,7 @@ static void updateTimeAdvice(bool force) {
   gfx->fillRect(TIME_X + 4, TIME_Y + 20, TIME_W - 8, TIME_H - 24, currentTheme->card);
 
   char elapsedBuf[16], recBuf[16], remBuf[16];
-  formatDuration(g_data.spectrumDurationSec, elapsedBuf, sizeof(elapsedBuf));
+  formatDuration(elapsedSec, elapsedBuf, sizeof(elapsedBuf));
   formatDuration(g_data.quality.recommendedSeconds, recBuf, sizeof(recBuf));
   formatDuration(g_data.quality.remainingSeconds, remBuf, sizeof(remBuf));
 
@@ -188,13 +189,15 @@ static void updateTimeAdvice(bool force) {
   } else {
     snprintf(line, sizeof(line), "Keep measuring ~%s", remBuf);
     Cards::leftText(TIME_X + 12, TIME_Y + 24, line, 2, currentTheme->warning);
-    snprintf(line, sizeof(line), "Elapsed %s  of recommended %s", elapsedBuf, recBuf);
+    snprintf(line, sizeof(line), "Elapsed %s%s of rec. %s", elapsedBuf,
+             g_data.isWindowed ? " (win)" : "", recBuf);
     Cards::leftText(TIME_X + 12, TIME_Y + 48, line, 1, currentTheme->textSecondary);
   }
 
   float progress = 0.0f;
   if (g_data.quality.recommendedSeconds > 0) {
-    progress = (float)g_data.spectrumDurationSec / (float)g_data.quality.recommendedSeconds;
+    progress = (float)elapsedSec / (float)g_data.quality.recommendedSeconds;
+    if (progress > 1.0f) progress = 1.0f;
   }
   Cards::progressBar(TIME_X + 12, TIME_Y + 64, TIME_W - 24, 10, progress, currentTheme->accent);
 

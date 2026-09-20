@@ -77,6 +77,8 @@ struct SpectrometerData {
   int batteryPercent = -1;   // -1 = unknown
   uint32_t liveTimeSeconds = 0;      // wall clock since connect
   uint32_t spectrumDurationSec = 0;  // device-reported spectrum acquisition time
+  uint32_t windowDurationSec = 0;    // duration of active measurement window
+  bool isWindowed = false;           // true when spectrum window is active
 
   float doseRateUSvH = 0.0f;
   // Counts per second, matching what the official RadiaCode app reports —

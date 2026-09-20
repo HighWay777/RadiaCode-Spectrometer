@@ -306,7 +306,8 @@ static void act(int index) {
         setToast("Not long enough yet.");
       } else if (Background::record(g_data)) {
         s_recording = false;
-        setToast("Reference saved. Subtraction is now ON.");
+        BleSource::resetSpectrum();
+        setToast("Saved. Subtraction ON, ready for sample.");
       } else {
         setToast("Could not save reference.");
       }

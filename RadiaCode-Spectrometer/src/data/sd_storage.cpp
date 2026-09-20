@@ -197,9 +197,12 @@ bool exportSpectrum(const SpectrometerData& d, char* outPath, size_t outLen) {
 
   // Header comments carry everything needed to re-derive the energy axis
   // offline (Gamma-MCA and friends read plain CSV).
+  uint32_t totalCounts = 0;
+  for (int i = 0; i < SPECTRUM_CHANNELS; i++) totalCounts += d.spectrum[i];
+
   f.println("# RadiaCode-110 spectrum export");
   f.printf("# duration_s,%u\n", (unsigned)d.spectrumDurationSec);
-  f.printf("# total_counts,%u\n", (unsigned)d.quality.totalCounts);
+  f.printf("# total_counts,%u\n", (unsigned)totalCounts);
   f.printf("# cps,%.3f\n", d.cps);
   f.printf("# dose_uSv_h,%.4f\n", d.doseRateUSvH);
   f.printf("# calib_a0,%.6f\n", d.calibA0);
@@ -266,9 +269,12 @@ bool autosaveSpectrum(const SpectrometerData& d) {
   SD.remove(path);
   File f = SD.open(path, FILE_WRITE);
   if (!f) return false;
+  uint32_t totalCounts = 0;
+  for (int i = 0; i < SPECTRUM_CHANNELS; i++) totalCounts += d.spectrum[i];
+
   f.println("# RadiaCode-110 autosave checkpoint");
   f.printf("# duration_s,%u\n", (unsigned)d.spectrumDurationSec);
-  f.printf("# total_counts,%u\n", (unsigned)d.quality.totalCounts);
+  f.printf("# total_counts,%u\n", (unsigned)totalCounts);
   f.printf("# calib_a0,%.6f\n", d.calibA0);
   f.printf("# calib_a1,%.6f\n", d.calibA1);
   f.printf("# calib_a2,%.8f\n", d.calibA2);

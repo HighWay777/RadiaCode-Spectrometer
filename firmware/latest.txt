@@ -4,5 +4,5 @@
 # paths are commonly blocked by proxies while ordinary repo paths pass.
 # Bump both lines when publishing a release.
 
-version=1.0.6
-url=https://git.vhelectronics.com/highway/RadiaCode-Spectrometer/releases/download/v1.0.6/firmware.bin
+version=1.0.7
+url=https://git.vhelectronics.com/highway/RadiaCode-Spectrometer/releases/download/v1.0.7/firmware.bin

@@ -250,7 +250,10 @@ void view(const SpectrometerData& full, SpectrometerData& out) {
   out.spectrumDurationSec = full.spectrumDurationSec - s_baseDuration;
 }
 
-uint32_t windowSeconds() { return s_baseDuration; }
+uint32_t windowSeconds() {
+  if (!s_haveBase || s_cumulative) return s_prevDuration;
+  return (s_prevDuration > s_baseDuration) ? (s_prevDuration - s_baseDuration) : 0;
+}
 bool windowed() { return s_haveBase && !s_cumulative; }
 
 } // namespace SpectrumWindow

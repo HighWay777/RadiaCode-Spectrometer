@@ -1,5 +1,6 @@
 #include "isotope_library.h"
 #include "isotope_data.h"
+#include "../analysis/templates.h"
 #include <Arduino.h>
 #include <SD.h>
 #include <stdlib.h>
@@ -42,6 +43,7 @@ void begin() {
   s_count = BUILTIN_ISOTOPE_COUNT;
   s_fromSd = false;
   snprintf(s_source, sizeof(s_source), "built-in");
+  Templates::invalidate();
 }
 
 uint16_t count() { return s_count; }
@@ -189,6 +191,7 @@ bool loadFromSd(const char* path) {
   s_count = nDefs;
   s_fromSd = true;
   snprintf(s_source, sizeof(s_source), "SD (%u nuclides)", (unsigned)nDefs);
+  Templates::invalidate();
 
   Serial.printf("[LIB] Loaded %u nuclides / %u lines from %s (%d rows skipped)\n",
                 (unsigned)nDefs, (unsigned)nLines, path, skipped);

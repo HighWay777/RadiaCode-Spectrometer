@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "../analysis/ambient.h"
 #include <Preferences.h>
 #include <math.h>
 
@@ -73,6 +74,7 @@ void factoryReset() {
   // The background reference lives in its own namespace (see background.cpp).
   Preferences b;
   if (b.begin("radiacode", false)) { b.clear(); b.end(); }
+  Ambient::reset();
 
   s_autoReconnect = false;   // same out-of-the-box default as a fresh device
   s_connectAtStartup = false;

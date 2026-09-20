@@ -87,6 +87,8 @@ void draw() {
   // Two columns so nuclides with many lines (Bi-214 has 7) still fit.
   int16_t ly = 162;
   int16_t lx = 20;
+  const DetectedPeak* peaks = lastPeaks();
+  int pCount = lastPeakCount();
   if (def != nullptr) {
     for (uint8_t i = 0; i < def->lineCount; i++) {
       const IsotopeLine& line = def->lines[i];
@@ -95,6 +97,14 @@ void draw() {
       // the real tolerance is ~10 keV at 60 keV and ~64 keV at 2614 keV.
       float tol = fwhmKeVAt(line.energyKeV) * 0.6f;
       bool isMatched = fabsf(line.energyKeV - snapshot.matchedEnergyKeV) < tol;
+      if (!isMatched && peaks != nullptr) {
+        for (int p = 0; p < pCount; p++) {
+          if (fabsf(line.energyKeV - peaks[p].energyKeV) < tol) {
+            isMatched = true;
+            break;
+          }
+        }
+      }
       char lineBuf[32];
       snprintf(lineBuf, sizeof(lineBuf), "%.1f keV  (%.1f%%)", line.energyKeV, line.intensity * 100.0f);
       Cards::leftText(lx, ly, lineBuf, 1, isMatched ? currentTheme->highlight : currentTheme->text);

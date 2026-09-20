@@ -326,6 +326,8 @@ static bool doReset() {
   DataGuard guard;
   memset(g_data.spectrum, 0, sizeof(g_data.spectrum));
   g_data.spectrumDurationSec = 0;
+  g_data.windowDurationSec = 0;
+  g_data.isWindowed = false;
   g_data.candidateCount = 0;
   g_data.sourceClass = SRC_INSUFFICIENT;
   g_data.uranium = {0.0f, 0, 0};
@@ -425,6 +427,8 @@ static void pollSpectrum() {
     // Take the analysis snapshot while still holding the lock.
     SpectrumWindow::update(g_data);
     SpectrumWindow::view(g_data, s_analysis);
+    g_data.windowDurationSec = s_analysis.spectrumDurationSec;
+    g_data.isWindowed = SpectrumWindow::windowed();
   } catch (...) {
     Serial.println("[BLE] Error reading spectrum");
     return;
@@ -452,6 +456,8 @@ static void pollSpectrum() {
   g_data.uranium = s_analysis.uranium;
   g_data.thorium = s_analysis.thorium;
   g_data.quality = s_analysis.quality;
+  g_data.windowDurationSec = s_analysis.spectrumDurationSec;
+  g_data.isWindowed = SpectrumWindow::windowed();
 }
 
 static void tickInternal() {

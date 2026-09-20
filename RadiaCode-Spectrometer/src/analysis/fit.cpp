@@ -33,19 +33,10 @@ static float s_chi2 = 0.0f;
 #define MODEL_FLOOR 1e-6f
 
 // Channels below this energy are excluded from the likelihood.
-//
-// That region is lead/bismuth/thorium K X-ray fluorescence, backscatter and
-// the Compton edge - none of which the library models. Any dense, high-Z
-// sample grows a large bump there, and a nuclide with a low-energy line can
-// absorb it and score highly on evidence that is not really its own: on the
-// real uranium ore, Ba-133 reached 5.1 sigma and was displayed at 70% largely
-// on its 81 keV line. Fitting only where the model is trustworthy is more
-// honest than modelling that region badly.
-//
-// The cost is that a nuclide whose only signature is below this - Am-241 at
-// 59.5 keV - can no longer be identified. That is a real loss, but it was
-// never reliable there for the same reason.
-#define FIT_MIN_KEV 150.0f
+// Set to 45 keV to capture critical low-energy lines (Am-241 59.5 keV,
+// Co-57 122/136 keV, Tc-99m 140.5 keV, Th-234 63/93 keV) while cutting off
+// sub-45 keV electronic noise and severe detector attenuation.
+#define FIT_MIN_KEV 45.0f
 
 static int s_firstChannel = 0;
 
@@ -162,7 +153,12 @@ static void computeCovariance() {
       double sum = s_fisher[i * n + j];
       for (int k = 0; k < j; k++) sum -= L[i * n + k] * L[j * n + k];
       if (i == j) {
-        if (sum <= 0.0) return;          // not positive definite; give up safely
+        if (sum <= 0.0) {
+#ifdef ARDUINO
+          Serial.printf("[FIT] Cholesky failed at col %d (sum=%.3e)\n", i, sum);
+#endif
+          return;          // not positive definite; give up safely
+        }
         L[i * n + i] = sqrt(sum);
       } else {
         L[i * n + j] = sum / L[j * n + j];

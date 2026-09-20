@@ -148,13 +148,12 @@ static float dominantLine(const IsotopeDef& def) {
   for (uint8_t li = 0; li < def.lineCount; li++) {
     float e = def.lines[li].energyKeV;
     if (e <= 0.0f) continue;
-    // Only lines the fit actually used. Eu-152 was displayed as "best
-    // 121.8 keV" while that line sits below the fit range and contributed
-    // nothing - the evidence was really its 344 keV line overlapping the
-    // uranium chain. Naming an unused line misrepresents what was measured.
     if (e < Fit::minEnergyKeV()) continue;
     float w = def.lines[li].intensity * (e >= 200.0f ? powf(200.0f / e, 1.2f) : 1.0f);
     if (w > bestWeight) { bestWeight = w; best = e; }
+  }
+  if (best <= 0.0f && def.lineCount > 0) {
+    best = def.lines[0].energyKeV;
   }
   return best;
 }
@@ -246,8 +245,17 @@ bool run(SpectrometerData& d) {
     }
   }
 
-  // Chains first when they are the dominant finding, since a natural sample
-  // is described by its chain rather than by any one daughter.
+  struct CandidateItem {
+    const char* symbol;
+    const char* name;
+    float sigma;
+    uint8_t matched;
+    uint8_t total;
+    float energy;
+  };
+  CandidateItem pool[24];
+  int nPool = 0;
+
   struct { float sigma; DecayChain chain; } chains[2] = {
     { d.uranium.confidence > 0.0f ? uSigma : 0.0f, CHAIN_U238 },
     { d.thorium.confidence > 0.0f ? tSigma : 0.0f, CHAIN_TH232 },
@@ -307,25 +315,39 @@ bool run(SpectrometerData& d) {
       }
     }
 
-    // Keep room for the other chain and for any standalone nuclide.
+    // Add chain members to candidate pool
     int shown = 0;
     for (int m = 0; m < nm && shown < CHAIN_MEMBERS_SHOWN; m++) {
-      // A member far weaker than the chain's strongest would not be visible
-      // in this spectrum even though the chain is present, so listing it
-      // would claim evidence that is not there.
       if (member[m].weight < member[0].weight * CHAIN_MEMBER_MIN_SHARE) break;
-      if (d.candidateCount >= MAX_CANDIDATES - 1) break;
-      const IsotopeDef& def = IsotopeLibrary::at(member[m].iso);
-      addCandidate(d, def.symbol, def.name, chains[k].sigma,
-                   def.lineCount, def.lineCount, dominantLine(def));
+      if (nPool < 24) {
+        const IsotopeDef& def = IsotopeLibrary::at(member[m].iso);
+        pool[nPool++] = { def.symbol, def.name, chains[k].sigma,
+                          def.lineCount, def.lineCount, dominantLine(def) };
+      }
       shown++;
     }
   }
 
-  for (int i = 0; i < n && d.candidateCount < MAX_CANDIDATES; i++) {
+  // Add detected standalone nuclides to candidate pool
+  for (int i = 0; i < n && nPool < 24; i++) {
     const IsotopeDef& def = IsotopeLibrary::at(order[i].iso);
-    addCandidate(d, def.symbol, def.name, order[i].sigma,
-                 def.lineCount, def.lineCount, dominantLine(def));
+    pool[nPool++] = { def.symbol, def.name, order[i].sigma,
+                      def.lineCount, def.lineCount, dominantLine(def) };
+  }
+
+  // Sort pool by significance descending so highest confidence findings always lead
+  for (int a = 0; a < nPool; a++) {
+    for (int b = a + 1; b < nPool; b++) {
+      if (pool[b].sigma > pool[a].sigma) {
+        CandidateItem tmp = pool[a]; pool[a] = pool[b]; pool[b] = tmp;
+      }
+    }
+  }
+
+  // Populate up to MAX_CANDIDATES
+  for (int i = 0; i < nPool && d.candidateCount < MAX_CANDIDATES; i++) {
+    addCandidate(d, pool[i].symbol, pool[i].name, pool[i].sigma,
+                 pool[i].matched, pool[i].total, pool[i].energy);
   }
 
   // --- verdict --------------------------------------------------------------

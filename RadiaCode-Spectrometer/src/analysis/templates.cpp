@@ -127,7 +127,9 @@ static void addCompton(float* col, float energyKeV, float photopeakArea) {
 // natural uranium at 0.72% by atom but ~4.6% by activity.
 float chainBranch(const char* symbol) {
   if (strcmp(symbol, "Tl-208") == 0) return 0.3594f;
-  if (strcmp(symbol, "Bi-212") == 0) return 0.6406f;
+  // Bi-212 line intensities in isotope_data.h are already absolute per decay
+  // of Bi-212 parent (6.67% for 727 keV), so no second 0.6406 branch factor.
+  if (strcmp(symbol, "Bi-212") == 0) return 1.0f;
   if (strcmp(symbol, "U-235") == 0)  return 0.046f;
   return 1.0f;
 }

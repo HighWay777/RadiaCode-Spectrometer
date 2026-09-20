@@ -1,4 +1,5 @@
 #include "background.h"
+#include "../analysis/templates.h"
 #include <Preferences.h>
 #include <string.h>
 
@@ -61,6 +62,7 @@ bool active()    { return s_available && s_enabled; }
 
 void setEnabled(bool on) {
   s_enabled = on;
+  Templates::invalidate();
   Preferences prefs;
   if (prefs.begin(NS, false)) {
     prefs.putBool(K_EN, on);
@@ -96,6 +98,7 @@ bool record(const SpectrometerData& d) {
   prefs.putBool(K_EN, s_enabled);
   prefs.putString(K_LABEL, s_label);
   prefs.end();
+  Templates::invalidate();
   return ok;
 }
 
@@ -121,6 +124,7 @@ bool setFromRates(const float* cps, uint32_t durationSec, uint32_t totalCounts) 
   prefs.putBool(K_EN, s_enabled);
   prefs.putString(K_LABEL, s_label);
   prefs.end();
+  Templates::invalidate();
   return ok;
 }
 
@@ -131,6 +135,7 @@ void erase() {
   s_duration = 0;
   s_total = 0;
   s_label[0] = 0; // a stale name must not outlive its data
+  Templates::invalidate();
   Preferences prefs;
   if (prefs.begin(NS, false)) {
     prefs.remove(K_DATA);
